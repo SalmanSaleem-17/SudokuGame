@@ -24,7 +24,7 @@ export function getAdsConfig(): AdsConfig {
   const unit = Platform.OS === 'android' ? extra.rewardedUnitId?.android : Platform.OS === 'ios' ? extra.rewardedUnitId?.ios : null;
   return {
     mode: extra.mode === 'production' ? 'production' : 'test',
-    rewardedUnitId: unit ?? null,
+    rewardedUnitId: typeof unit === 'string' && unit.length > 0 ? unit : null,
     devMock: __DEV__ && extra.devMock === true && extra.mode !== 'production',
   };
 }

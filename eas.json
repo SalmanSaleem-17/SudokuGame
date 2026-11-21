@@ -1,20 +1,37 @@
 {
-  "cli": { "version": ">= 16.0.0", "appVersionSource": "local" },
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "local"
+  },
   "build": {
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "android": { "buildType": "apk" },
-      "env": { "ADS_MODE": "test" }
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "ADS_MODE": "test"
+      }
     },
     "preview": {
       "distribution": "internal",
-      "android": { "buildType": "apk" },
-      "env": { "ADS_MODE": "test" }
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "ADS_MODE": "test"
+      }
     },
     "production": {
-      "android": { "buildType": "app-bundle" },
-      "env": { "ADS_MODE": "production" }
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "ADS_MODE": "production",
+        "ADMOB_ANDROID_APP_ID": "ca-app-pub-5067154930063661~3901747139",
+        "ADMOB_REWARDED_UNIT_ANDROID": "ca-app-pub-5067154930063661/9145288770"
+      }
     }
   }
 }
