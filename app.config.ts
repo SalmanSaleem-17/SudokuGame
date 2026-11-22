@@ -70,6 +70,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     ...config,
     name: 'Sudoku Studio',
     slug: 'sudoku-studio',
+    owner: 'salmansaleem',
     scheme: 'sudokustudio',
     version: '1.0.0',
     orientation: 'portrait',
@@ -81,8 +82,8 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       bundleIdentifier: 'com.sudokustudio.app',
     },
     android: {
-      package: 'com.sudokustudio.app',
-      versionCode: 1,
+      package: 'com.sudoku.studio',
+      versionCode: 2,
       adaptiveIcon: {
         foregroundImage: './assets/adaptive-icon.png',
         backgroundColor: '#19191B',
@@ -106,6 +107,11 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       ],
     ],
     extra: {
+      ...config.extra,
+      eas: {
+        ...config.extra?.eas,
+        projectId: 'b37fe119-ebc2-4d45-9a6c-2c28261e4969',
+      },
       ads: {
         mode: ads.mode,
         rewardedUnitId: { android: ads.rewardedAndroid, ios: ads.rewardedIos },

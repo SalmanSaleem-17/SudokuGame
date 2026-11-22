@@ -102,7 +102,7 @@ transaction as the balance change. The balance is local convenience data: it is 
 
 ### Google Play
 
-1. Create the app, choose your final package name (`android.package` in `app.config.ts`, currently `com.sudokustudio.app`) and set up signing (EAS manages it by default).
+1. Create the app in Play Console for the Android package `com.sudoku.studio` defined in `app.config.ts`, and set up signing (EAS manages it by default).
 2. **Privacy policy**: required, because the ads SDK uses the advertising ID. Host one and add the URL in the Play Console. It should say the app has no accounts, stores game data only on the device, and uses Google AdMob for optional rewarded ads.
 3. **Ads declaration**: answer *Yes, my app contains ads*.
 4. **Advertising ID declaration**: answer *Yes*, use case *Advertising or marketing* (the Mobile Ads SDK adds the `AD_ID` permission).
