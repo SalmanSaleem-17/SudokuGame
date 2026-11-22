@@ -83,6 +83,8 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     },
     android: {
       package: 'com.sudoku.studio',
+      // Game data and hint credits stay on the device: no Android cloud backup.
+      allowBackup: false,
       versionCode: 2,
       adaptiveIcon: {
         foregroundImage: './assets/adaptive-icon.png',

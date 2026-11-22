@@ -1,10 +1,18 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { appStore, showPrivacyOptions, updateSettings } from '../state/app';
 import { useStore } from '../state/store';
 import { Card, Screen, SectionLabel, ToggleRow } from '../ui/controls';
 import { colors, spacing, type } from '../ui/theme';
+
+const PRIVACY_URL = 'https://salmansaleem.dev/privacy/sudoku-studio';
+const TERMS_URL = 'https://salmansaleem.dev/terms/sudoku-studio';
+
+/** Opens a page in the browser. Offline or with no browser, nothing happens. */
+const openUrl = (url: string) => {
+  Linking.openURL(url).catch(() => undefined);
+};
 
 export default function SettingsScreen() {
   const settings = useStore(appStore, (s) => s.settings);
@@ -84,12 +92,36 @@ export default function SettingsScreen() {
             </>
           )}
         </Card>
+
+        <SectionLabel>About</SectionLabel>
+        <Card>
+          <LinkRow label="Privacy policy" description="What the app stores and how ads work." onPress={() => openUrl(PRIVACY_URL)} />
+          <Divider />
+          <LinkRow label="Terms of service" description="The rules for using the app." onPress={() => openUrl(TERMS_URL)} />
+        </Card>
       </ScrollView>
     </Screen>
   );
 }
 
 const Divider = () => <View style={styles.divider} />;
+
+function LinkRow({ label, description, onPress }: { label: string; description: string; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="link"
+      accessibilityLabel={label}
+      accessibilityHint="Opens in your browser"
+      style={({ pressed }) => [styles.link, pressed && { backgroundColor: colors.surfaceHigh }]}>
+      <View style={styles.linkText}>
+        <Text style={type.body}>{label}</Text>
+        <Text style={type.dim}>{description}</Text>
+      </View>
+      <Ionicons name="open-outline" size={20} color={colors.textDim} />
+    </Pressable>
+  );
+}
 
 const styles = StyleSheet.create({
   content: { padding: spacing.lg, paddingTop: 0, paddingBottom: spacing.xxl, maxWidth: 520, width: '100%', alignSelf: 'center' },
