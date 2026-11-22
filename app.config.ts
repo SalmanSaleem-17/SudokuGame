@@ -1,4 +1,19 @@
 import type { ConfigContext, ExpoConfig } from 'expo/config';
+import { ConfigPlugin, withGradleProperties } from 'expo/config-plugins';
+
+/**
+ * Expo raises CMake's object-path limit to 1024, which stops CMake from shortening long
+ * object file names. On Windows without long-path support that breaks the native build
+ * ("Filename longer than 260 characters" from ninja). 0 restores CMake's platform defaults,
+ * so long names are hashed on Windows; Linux and macOS builds are unaffected.
+ */
+const CMAKE_PATH_PROPERTY = 'expo.android.cmakeObjectPathMax';
+const withCmakePlatformPathLimit: ConfigPlugin = (config) =>
+  withGradleProperties(config, (gradle) => {
+    gradle.modResults = gradle.modResults.filter((p) => !(p.type === 'property' && p.key === CMAKE_PATH_PROPERTY));
+    gradle.modResults.push({ type: 'property', key: CMAKE_PATH_PROPERTY, value: '0' });
+    return gradle;
+  });
 
 /**
  * AdMob configuration is read from environment variables (see .env.example).
@@ -51,7 +66,7 @@ function resolveAds() {
 
 export default ({ config }: ConfigContext): ExpoConfig => {
   const ads = resolveAds();
-  return {
+  const expo: ExpoConfig = {
     ...config,
     name: 'Sudoku Studio',
     slug: 'sudoku-studio',
@@ -99,4 +114,5 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       },
     },
   };
+  return withCmakePlatformPathLimit(expo);
 };
