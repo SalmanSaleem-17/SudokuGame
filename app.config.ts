@@ -1,5 +1,5 @@
 import type { ConfigContext, ExpoConfig } from 'expo/config';
-import { ConfigPlugin, withGradleProperties } from 'expo/config-plugins';
+import { ConfigPlugin, withAndroidManifest, withGradleProperties } from 'expo/config-plugins';
 
 /**
  * Expo raises CMake's object-path limit to 1024, which stops CMake from shortening long
@@ -13,6 +13,21 @@ const withCmakePlatformPathLimit: ConfigPlugin = (config) =>
     gradle.modResults = gradle.modResults.filter((p) => !(p.type === 'property' && p.key === CMAKE_PATH_PROPERTY));
     gradle.modResults.push({ type: 'property', key: CMAKE_PATH_PROPERTY, value: '0' });
     return gradle;
+  });
+
+/**
+ * Locking the app to portrait makes Android treat a portrait screen as required hardware,
+ * which hides the app on Google Play from devices that do not report one (Chromebooks, PCs,
+ * XR). Declaring the feature as optional keeps the app portrait while restoring availability.
+ */
+const PORTRAIT_FEATURE = 'android.hardware.screen.portrait';
+const withOptionalPortraitFeature: ConfigPlugin = (config) =>
+  withAndroidManifest(config, (android) => {
+    const manifest = android.modResults.manifest;
+    const features = (manifest['uses-feature'] ?? []).filter((f) => f.$['android:name'] !== PORTRAIT_FEATURE);
+    features.push({ $: { 'android:name': PORTRAIT_FEATURE, 'android:required': 'false' } });
+    manifest['uses-feature'] = features;
+    return android;
   });
 
 /**
@@ -64,6 +79,15 @@ function resolveAds() {
   };
 }
 
+const LAUNCH_BACKGROUND = '#0C0D10';
+
+// WorkManager instantiates these generated Room databases and input mergers by reflection.
+// R8 removed their constructors in the version 2 release.
+const ANDROID_STARTUP_KEEP_RULES = [
+  '-keep class * extends androidx.room.RoomDatabase { <init>(); }',
+  '-keep class * extends androidx.work.InputMerger { <init>(); }',
+].join('\n');
+
 export default ({ config }: ConfigContext): ExpoConfig => {
   const ads = resolveAds();
   const expo: ExpoConfig = {
@@ -76,7 +100,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     orientation: 'portrait',
     icon: './assets/icon.png',
     userInterfaceStyle: 'dark',
-    backgroundColor: '#19191B',
+    backgroundColor: LAUNCH_BACKGROUND,
     ios: {
       supportsTablet: false,
       bundleIdentifier: 'com.sudokustudio.app',
@@ -85,7 +109,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       package: 'com.sudoku.studio',
       // Game data and hint credits stay on the device: no Android cloud backup.
       allowBackup: false,
-      versionCode: 2,
+      versionCode: 3,
       adaptiveIcon: {
         foregroundImage: './assets/adaptive-icon.png',
         backgroundColor: '#19191B',
@@ -94,9 +118,17 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     plugins: [
       'expo-router',
       'expo-sqlite',
+      ['expo-build-properties', { android: { extraProguardRules: ANDROID_STARTUP_KEEP_RULES } }],
       [
         'expo-splash-screen',
-        { image: './assets/splash-icon.png', imageWidth: 180, backgroundColor: '#19191B' },
+        {
+          image: './assets/sudoku-graphite-wordmark.png',
+          backgroundColor: LAUNCH_BACKGROUND,
+          resizeMode: 'contain',
+          // The wide wordmark fits inside Android's 192 dp circular splash safe area at this width.
+          imageWidth: 172,
+          ios: { imageWidth: 240 },
+        },
       ],
       [
         'react-native-google-mobile-ads',
@@ -122,5 +154,5 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       },
     },
   };
-  return withCmakePlatformPathLimit(expo);
+  return withOptionalPortraitFeature(withCmakePlatformPathLimit(expo));
 };

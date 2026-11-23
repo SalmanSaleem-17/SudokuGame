@@ -118,10 +118,13 @@ export function findHiddenSingles(state: SolveState, firstOnly = false): Step[] 
       }
       if (n !== 1 || seen.has(spot * 10 + d)) continue;
       seen.add(spot * 10 + d);
+      const direct = empties.every((c) => c === spot || PEERS[c].some((peer) => state.values[peer] === d));
       const explanation =
         empties.length === 1
           ? `${cellName(spot)} is the last empty cell in ${unitName(u)}, and ${d} is the only digit that ${unitName(u)} is still missing.`
-          : `In ${unitName(u)}, the digit ${d} has only one possible cell: ${cellName(spot)}. Every other empty cell in ${unitName(u)} is ruled out because it already shares a row, column or box with a ${d}.`;
+          : `In ${unitName(u)}, the digit ${d} has only one possible cell: ${cellName(spot)}. ${direct
+            ? `Every other empty cell in ${unitName(u)} already shares a row, column or box with a ${d}.`
+            : `The digits on the board and the earlier eliminations rule out ${d} in every other empty cell in ${unitName(u)}.`}`;
       steps.push({
         technique: 'hiddenSingle',
         placement: { cell: spot, digit: d },

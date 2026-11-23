@@ -43,11 +43,11 @@ export class Database {
   }
 
   /** Runs the task atomically: every statement commits, or none do. */
-  transaction<T>(task: (tx: Tx) => Promise<T>): Promise<T> {
+  transaction<T>(task: (tx: Tx, exec: (sql: string) => Promise<void>) => Promise<T>): Promise<T> {
     return this.enqueue(async () => {
       await this.driver.exec('BEGIN IMMEDIATE');
       try {
-        const result = await task(this.tx);
+        const result = await task(this.tx, (sql) => this.driver.exec(sql));
         await this.driver.exec('COMMIT');
         return result;
       } catch (error) {

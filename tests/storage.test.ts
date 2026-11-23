@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import puzzles from '../src/data/puzzles.json';
 import type { PuzzleRecord } from '../src/engine/pool';
+import { createChallenge, decodeChallenge, decodeChallengeScore, encodeChallengeScore } from '../src/game/challenge';
+import { WEEKLY_DIFFICULTIES, weeklyBadgeWeeks, weeklyPuzzleFor } from '../src/game/events';
 import { evaluateHint, withHintRevealed } from '../src/game/hintAccess';
-import { Session, createSession, enterDigit, toggleNote, undoMove } from '../src/game/session';
+import { puzzlesForPack } from '../src/game/learning';
+import { Session, createChallengeSession, createSession, createTechniqueSession, enterDigit, getSessionFailure, redoMove, toggleNote, undoMove } from '../src/game/session';
 import { Database } from '../src/storage/database';
-import { InsufficientCreditsError, Repository } from '../src/storage/repository';
+import { InsufficientCreditsError, OwnChallengeScoreError, Repository, SCHEMA_VERSION } from '../src/storage/repository';
 import { createMemoryDb, nodeDriver } from './helpers';
 
 const POOL = puzzles as PuzzleRecord[];
@@ -44,7 +47,7 @@ function applyHint(session: Session): Session {
 describe('first launch', () => {
   it('starts with defaults, no sessions and no credits, with nothing but local storage', async () => {
     const { repo } = await setup();
-    expect(await repo.loadSessions()).toEqual({ classic: null, daily: null });
+    expect(await repo.loadSessions()).toEqual({ classic: null, daily: null, challenge: null, technique: null, weekly: null });
     expect(await repo.getCredits()).toBe(0);
     expect((await repo.loadSettings()).timer).toBe(true);
     expect(await repo.listCompletions()).toEqual([]);
@@ -54,7 +57,46 @@ describe('first launch', () => {
     const { db, restart } = await setup();
     await restart();
     const row = db.prepare('PRAGMA user_version').get() as { user_version: number };
-    expect(row.user_version).toBe(1);
+    expect(row.user_version).toBe(SCHEMA_VERSION);
+  });
+
+  it('upgrades version 3 when the review count column already exists', async () => {
+    const { db, repo, restart } = await setup();
+    const game = createSession(POOL[0], 'classic', 'v3-review', 1);
+    const cell = game.values.indexOf(0);
+    const incorrect = game.solution[cell] === 1 ? 2 : 1;
+    await repo.recordCompletion(solveAll(undoMove(enterDigit(game, cell, incorrect, SMART))), 2);
+    db.exec('PRAGMA user_version = 3;');
+
+    const upgraded = await restart();
+    expect(await upgraded.listCompletions()).toMatchObject([{ sessionId: game.id, reviewCount: 1 }]);
+    expect(db.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: SCHEMA_VERSION });
+    expect(await (await restart()).listCompletions()).toEqual(await upgraded.listCompletions());
+  });
+
+  it('upgrades a version 1 save with its puzzle, credits and completion intact', async () => {
+    const { db, repo, restart } = await setup();
+    const classic = createSession(POOL[0], 'classic', 'c1', 1);
+    const daily = solveAll(createSession(POOL[1], 'daily', 'd1', 2, '2026-11-21'));
+    await repo.saveSession(classic, 3);
+    await repo.grantReward('old-ad', 2, 4);
+    await repo.recordCompletion(daily, 5);
+    db.exec(`
+      ALTER TABLE completions DROP COLUMN challenge_code;
+      DROP TABLE challenge_scores;
+      ALTER TABLE completions DROP COLUMN technique_pack;
+      ALTER TABLE completions DROP COLUMN mistake_review;
+      ALTER TABLE completions DROP COLUMN review_count;
+      DROP INDEX completions_weekly;
+      DROP INDEX completions_daily;
+      CREATE UNIQUE INDEX completions_daily ON completions (date_key) WHERE date_key IS NOT NULL;
+      PRAGMA user_version = 1;
+    `);
+
+    const upgraded = await restart();
+    expect((await upgraded.loadSessions()).classic).toEqual(classic);
+    expect(await upgraded.getCredits()).toBe(2);
+    expect(await upgraded.getDailyCompletion('2026-11-21')).toMatchObject({ sessionId: 'd1', challengeCode: null });
   });
 
   it('refuses data written by a newer schema', async () => {
@@ -62,9 +104,44 @@ describe('first launch', () => {
     db.exec('PRAGMA user_version = 99');
     await expect(restart()).rejects.toThrow(/newer app version/);
   });
+
+  it('defaults the theme for older settings and preserves mode-specific data and theme choices across a restart', async () => {
+    const { db, repo, restart } = await setup();
+    db.prepare('INSERT INTO kv (key, value) VALUES (?, ?)').run('settings', '{"numberFirst":true}');
+    const settings = await repo.loadSettings();
+    expect(settings).toMatchObject({ boardTheme: 'charcoal', numberFirst: true });
+    await repo.saveSettings({ ...settings, boardTheme: 'light' });
+    await Promise.all([
+      repo.saveModeProgress('mini-4', { puzzleId: '4-2', moves: [2, 1] }),
+      repo.saveModeProgress('speed-round', { best: 15 }),
+      repo.saveModeProgress('speed-round', { best: 32 }),
+    ]);
+
+    const reopened = await restart();
+    expect(await reopened.loadSettings()).toMatchObject({ boardTheme: 'light', numberFirst: true });
+    expect(await reopened.loadModeProgress('mini-4')).toEqual({ puzzleId: '4-2', moves: [2, 1] });
+    expect(await reopened.loadModeProgress('speed-round')).toEqual({ best: 32 });
+    expect(await reopened.loadModeProgress('mini-6')).toBeNull();
+  });
 });
 
 describe('sessions', () => {
+  it('restores classic rules and redo history without changing the save schema', async () => {
+    const { repo, restart } = await setup();
+    const rules = { timerMinutes: 5, mistakes: 3 } as const;
+    const fresh = createSession(POOL[0], 'classic', 'c1', 1, null, rules);
+    const cell = fresh.values.indexOf(0);
+    const undone = undoMove(enterDigit(fresh, cell, fresh.solution[cell], SMART));
+    await repo.saveSession(undone, 2);
+
+    const reopened = await restart();
+    const loaded = (await reopened.loadSessions()).classic!;
+    expect(loaded.rules).toEqual(rules);
+    expect(redoMove(loaded).values[cell]).toBe(fresh.solution[cell]);
+    await reopened.saveSession({ ...loaded, elapsedMs: 300_000 }, 3);
+    expect(getSessionFailure((await reopened.loadSessions()).classic!)).toBe('time');
+  });
+
   it('restores board, notes, undo history, elapsed time and hint state after a restart', async () => {
     const { repo, restart } = await setup();
     let s = createSession(POOL[0], 'classic', 'c1', 1);
@@ -109,7 +186,88 @@ describe('sessions', () => {
   });
 });
 
+describe('friend challenges', () => {
+  it('reopens the same challenge board and rules alongside classic and daily saves', async () => {
+    const { repo, restart } = await setup();
+    const challenge = createChallenge(POOL[0], { timerMinutes: 10, mistakes: 5 });
+    const shared = decodeChallenge(challenge.code);
+    const classic = createSession(POOL[1], 'classic', 'c1', 1);
+    const daily = createSession(POOL[2], 'daily', 'd1', 1, '2026-11-21');
+    const attempt = createChallengeSession(shared, 'challenge-one', 1);
+    await repo.saveSession(classic, 2);
+    await repo.saveSession(daily, 2);
+    await repo.saveSession(attempt, 2);
+
+    expect(await (await restart()).loadSessions()).toEqual({ classic, daily, challenge: attempt, technique: null, weekly: null });
+    expect(attempt.givens.join('')).toBe(challenge.puzzle.givens);
+    expect(getSessionFailure({ ...attempt, elapsedMs: 600_000 })).toBe('time');
+    expect(getSessionFailure({ ...attempt, mistakes: 5 })).toBe('mistakes');
+  });
+
+  it('saves scores by round and rejects an imported local result', async () => {
+    const { repo, restart } = await setup();
+    const rules = { timerMinutes: 0, mistakes: 'unlimited' } as const;
+    const challenge = createChallenge(POOL[0], rules);
+    const attempt = solveAll(createChallengeSession(challenge, 'player-one', 1));
+    await repo.saveSession(attempt, 1);
+    await repo.recordCompletion({ ...attempt, elapsedMs: 271_150 }, 2);
+    const result = (await repo.getCompletion(attempt.id))!;
+    const own = { challengeCode: result.challengeCode!, sessionId: result.sessionId, timeMs: result.timeMs, mistakes: 0, hints: 0 };
+    const friend = decodeChallengeScore(encodeChallengeScore({ ...own, sessionId: 'player-two', timeMs: 264_777, hints: 1 }));
+
+    await repo.saveFriendChallengeScore(friend);
+    await expect(repo.saveFriendChallengeScore(own)).rejects.toBeInstanceOf(OwnChallengeScoreError);
+
+    const reopened = await restart();
+    expect((await reopened.loadSessions()).challenge).toBeNull();
+    expect(await reopened.getCompletion(attempt.id)).toMatchObject({ slot: 'challenge', challengeCode: challenge.code, timeMs: 271_150 });
+    expect(await reopened.getFriendChallengeScore(challenge.code)).toEqual(friend);
+    const differentRound = createChallenge(POOL[1], rules);
+    expect(await reopened.getFriendChallengeScore(differentRound.code)).toBeNull();
+  });
+});
+
 describe('completions', () => {
+  it('records a weekly stage once and keeps the Daily result for the same date separate', async () => {
+    const { repo, restart } = await setup();
+    const monday = '2026-11-23';
+    await repo.recordCompletion(solveAll(createSession(POOL[0], 'daily', 'today', 1, monday)), 3);
+    for (const difficulty of WEEKLY_DIFFICULTIES) {
+      const puzzle = weeklyPuzzleFor(monday, difficulty);
+      const stage = createSession(puzzle, 'weekly', difficulty, 5, monday);
+      await repo.saveSession(stage, 5);
+      expect((await (await restart()).loadSessions()).weekly).toEqual(stage);
+      expect((await repo.recordCompletion(solveAll(stage), 6)).recorded).toBe(true);
+      expect((await repo.recordCompletion({ ...solveAll(stage), id: `${difficulty}-retry` }, 7)).recorded).toBe(false);
+    }
+    const reopened = await restart();
+    const results = await reopened.listCompletions();
+    expect(results).toHaveLength(4);
+    expect(weeklyBadgeWeeks(results)).toEqual([monday]);
+    expect((await reopened.getDailyCompletion(monday))?.sessionId).toBe('today');
+    expect(await reopened.listDailyCompletionDates()).toEqual([monday]);
+  });
+
+  it('persists a technique puzzle and mistake details after the player corrects the entry', async () => {
+    const { repo, restart } = await setup();
+    const puzzle = puzzlesForPack(POOL, 'pairs')[0];
+    let session = createTechniqueSession(puzzle, 'pairs', 'pair-study', 1);
+    const cell = session.values.indexOf(0);
+    const incorrect = session.solution[cell] === 1 ? 2 : 1;
+    session = enterDigit(session, cell, incorrect, SMART);
+    await repo.saveSession(session, 2);
+    expect((await (await restart()).loadSessions()).technique).toEqual(session);
+    session = solveAll(undoMove(session));
+    await repo.recordCompletion(session, 3);
+    const reopened = await restart();
+    expect(await reopened.getCompletion(session.id)).toMatchObject({
+      slot: 'technique', techniquePack: 'pairs', mistakeReview: [{ cell, entered: incorrect, correct: session.solution[cell] }],
+    });
+    const [summary] = await reopened.listCompletions();
+    expect(summary.reviewCount).toBe(1);
+    expect(summary.mistakeReview).toBeUndefined();
+  });
+
   it('records a completion once, however often it is submitted', async () => {
     const { repo, restart } = await setup();
     const done = { ...solveAll(createSession(POOL[0], 'classic', 'c1', 1)), elapsedMs: 120000, mistakes: 2, hintsUsed: 1 };

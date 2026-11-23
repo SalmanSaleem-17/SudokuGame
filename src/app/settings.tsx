@@ -1,132 +1,264 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { type ReactNode, useRef, useState } from 'react';
+import { type LayoutChangeEvent, Linking, Pressable, ScrollView, type ScrollViewInstance, StyleSheet, Text, View } from 'react-native';
 
+import { CREDITS_PER_REWARD } from '../ads/rewardController';
+import { BOARD_THEMES, type BoardTheme } from '../game/settings';
 import { appStore, showPrivacyOptions, updateSettings } from '../state/app';
 import { useStore } from '../state/store';
-import { Card, Screen, SectionLabel, ToggleRow } from '../ui/controls';
-import { colors, spacing, type } from '../ui/theme';
+import { BOARD_PALETTES, BOARD_THEME_NAMES } from '../ui/boardTheme';
+import { Card, type IconName, Screen, ToggleRow } from '../ui/controls';
+import { colors, radius, spacing, TOUCH, type } from '../ui/theme';
 
 const PRIVACY_URL = 'https://salmansaleem.dev/privacy/sudoku-studio';
 const TERMS_URL = 'https://salmansaleem.dev/terms/sudoku-studio';
 
-/** Opens a page in the browser. Offline or with no browser, nothing happens. */
-const openUrl = (url: string) => {
-  Linking.openURL(url).catch(() => undefined);
+const palettes = {
+  gameplay: { tint: '#C0CEDD', fill: '#1C2128', border: '#3A444E' },
+  comfort: { tint: '#B4CCBF', fill: '#1C2522', border: '#3C4B43' },
+  appearance: { tint: '#E8CA96', fill: '#252019', border: '#5B4B32' },
+  about: { tint: '#D6D3CE', fill: '#222123', border: '#46413F' },
 };
 
+function openUrl(url: string) {
+  void Linking.openURL(url).catch(() => undefined);
+}
+
 export default function SettingsScreen() {
+  const router = useRouter();
+  const { section } = useLocalSearchParams<{ section?: string }>();
+  const openAbout = section === 'about';
+  const scroll = useRef<ScrollViewInstance>(null);
+  const aboutOffset = useRef<number | null>(null);
   const settings = useStore(appStore, (s) => s.settings);
-  const ads = useStore(appStore, (s) => s.ads);
+  const privacyOptionsRequired = useStore(appStore, (s) => s.ads.privacyOptionsRequired);
   const credits = useStore(appStore, (s) => s.credits);
+
+  const scrollToAbout = () => {
+    const y = aboutOffset.current;
+    if (y !== null) scroll.current?.scrollTo({ y: Math.max(0, y - spacing.lg), animated: false });
+  };
+  const layoutAbout = (event: LayoutChangeEvent) => {
+    aboutOffset.current = event.nativeEvent.layout.y;
+    scrollToAbout();
+  };
 
   return (
     <Screen title="Settings">
-      <ScrollView contentContainerStyle={styles.content}>
-        <SectionLabel>Game</SectionLabel>
-        <Card>
-          <ToggleRow
-            label="Timer"
-            description="Show elapsed time while you play."
-            value={settings.timer}
-            onChange={(timer) => updateSettings({ timer })}
-          />
+      <ScrollView
+        key={openAbout ? 'about' : 'settings'}
+        ref={scroll}
+        contentContainerStyle={styles.content}
+        onContentSizeChange={openAbout ? scrollToAbout : undefined}>
+        <SettingsGroup title="Gameplay" palette={palettes.gameplay}>
+          <ToggleRow label="Show elapsed timer" icon="time-outline" tint={palettes.gameplay.tint}
+            value={settings.timer} onChange={(timer) => updateSettings({ timer })} />
           <Divider />
-          <ToggleRow
-            label="Mistake feedback"
-            description="Mark entries that don't match the solution. Duplicates in a row, column or box are always marked."
-            value={settings.mistakeFeedback}
-            onChange={(mistakeFeedback) => updateSettings({ mistakeFeedback })}
-          />
+          <ToggleRow label="Mistake feedback" icon="shield-checkmark-outline" tint={palettes.gameplay.tint}
+            accessibilityHint="Mark entries that differ from the solution. Conflicts and mistake limits still apply."
+            value={settings.mistakeFeedback} onChange={(mistakeFeedback) => updateSettings({ mistakeFeedback })} />
           <Divider />
-          <ToggleRow
-            label="Smart notes"
-            description="Placing a digit removes it from notes in the same row, column and box."
-            value={settings.smartNotes}
-            onChange={(smartNotes) => updateSettings({ smartNotes })}
-          />
+          <ToggleRow label="Smart notes" description="Clear matching notes" icon="pencil-outline" tint={palettes.gameplay.tint}
+            accessibilityHint="Placing a digit clears that digit from notes in the same row, column, and box."
+            value={settings.smartNotes} onChange={(smartNotes) => updateSettings({ smartNotes })} />
           <Divider />
-          <ToggleRow
-            label="Number-first entry"
-            description="Pick a digit, then tap cells to place it."
-            value={settings.numberFirst}
-            onChange={(numberFirst) => updateSettings({ numberFirst })}
-          />
-        </Card>
+          <ToggleRow label="Pick number first" icon="keypad-outline" tint={palettes.gameplay.tint}
+            accessibilityHint="Choose a number, then tap a cell to place it."
+            value={settings.numberFirst} onChange={(numberFirst) => updateSettings({ numberFirst })} />
+        </SettingsGroup>
 
-        <SectionLabel>Feel</SectionLabel>
-        <Card>
-          <ToggleRow label="Haptics" description="Light vibration on entries." value={settings.haptics} onChange={(haptics) => updateSettings({ haptics })} />
+        <SettingsGroup title="Comfort" palette={palettes.comfort}>
+          <ToggleRow label="Vibration" icon="phone-portrait-outline" tint={palettes.comfort.tint}
+            value={settings.haptics} onChange={(haptics) => updateSettings({ haptics })} />
           <Divider />
-          <ToggleRow
-            label="Reduce motion"
-            description="Turn off transitions and animations. The system setting is also respected."
-            value={settings.reducedMotion}
-            onChange={(reducedMotion) => updateSettings({ reducedMotion })}
-          />
-        </Card>
+          <ToggleRow label="Reduce motion" icon="contrast-outline" tint={palettes.comfort.tint}
+            accessibilityHint="Reduce animations and transitions. Your system setting also applies."
+            value={settings.reducedMotion} onChange={(reducedMotion) => updateSettings({ reducedMotion })} />
+        </SettingsGroup>
 
-        <SectionLabel>Hints and ads</SectionLabel>
-        <Card>
-          <View style={styles.info}>
-            <Text style={type.body}>Hint credits: {credits}</Text>
-            <Text style={type.dim}>
-              Each puzzle has one free hint. Watching an optional ad from the hint panel adds 2 credits. Credits are stored
-              only on this device: they are not backed up, cannot be transferred, and are lost if the app is uninstalled or
-              its data is cleared.
-            </Text>
-          </View>
-          {ads.privacyOptionsRequired && (
+        <SettingsGroup title="Board theme" palette={palettes.appearance}>
+          {BOARD_THEMES.map((theme, index) => (
+            <View key={theme}>
+              {index > 0 && <Divider />}
+              <ThemeOption theme={theme} selected={settings.boardTheme === theme} />
+            </View>
+          ))}
+        </SettingsGroup>
+
+        <HintCredits credits={credits} />
+
+        <SettingsGroup title="About and privacy" palette={palettes.about} onLayout={openAbout ? layoutAbout : undefined}>
+          <ActionRow label="How to Play" icon="book-outline" onPress={() => router.push('/how-to-play')} />
+          <Divider />
+          {privacyOptionsRequired && (
             <>
+              <ActionRow label="Ad privacy choices" icon="options-outline" onPress={() => void showPrivacyOptions()} />
               <Divider />
-              <Pressable
-                onPress={() => void showPrivacyOptions()}
-                accessibilityRole="button"
-                accessibilityLabel="Ad privacy options"
-                style={({ pressed }) => [styles.link, pressed && { backgroundColor: colors.surfaceHigh }]}>
-                <View style={styles.linkText}>
-                  <Text style={type.body}>Ad privacy options</Text>
-                  <Text style={type.dim}>Review or change your ad consent choices.</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={20} color={colors.textDim} />
-              </Pressable>
             </>
           )}
-        </Card>
-
-        <SectionLabel>About</SectionLabel>
-        <Card>
-          <LinkRow label="Privacy policy" description="What the app stores and how ads work." onPress={() => openUrl(PRIVACY_URL)} />
+          <ActionRow label="Privacy policy" icon="lock-closed-outline" external onPress={() => openUrl(PRIVACY_URL)} />
           <Divider />
-          <LinkRow label="Terms of service" description="The rules for using the app." onPress={() => openUrl(TERMS_URL)} />
-        </Card>
+          <ActionRow label="Terms of service" icon="document-text-outline" external onPress={() => openUrl(TERMS_URL)} />
+        </SettingsGroup>
       </ScrollView>
     </Screen>
   );
 }
 
-const Divider = () => <View style={styles.divider} />;
+function ThemeOption({ theme, selected }: { theme: BoardTheme; selected: boolean }) {
+  const palette = BOARD_PALETTES[theme];
+  return (
+    <Pressable
+      onPress={() => updateSettings({ boardTheme: theme })}
+      accessibilityRole="radio"
+      accessibilityLabel={BOARD_THEME_NAMES[theme]}
+      accessibilityState={{ checked: selected }}
+      style={({ pressed }) => [styles.action, pressed && styles.pressed]}>
+      <View style={[styles.themeSwatch, { borderColor: palette.frame, backgroundColor: palette.line }]}>
+        {[palette.cell, palette.selected, palette.alternate, palette.cell].map((color, index) => (
+          <View key={index} style={[styles.themeSquare, { backgroundColor: color }]} />
+        ))}
+      </View>
+      <Text style={[styles.actionLabel, styles.rowCopy]}>{BOARD_THEME_NAMES[theme]}</Text>
+      <Ionicons name={selected ? 'radio-button-on' : 'radio-button-off'} size={20} color={selected ? colors.accent : colors.textFaint} />
+    </Pressable>
+  );
+}
 
-function LinkRow({ label, description, onPress }: { label: string; description: string; onPress: () => void }) {
+function Divider() {
+  return <View style={styles.divider} />;
+}
+
+function SettingsGroup({ title, palette, children, onLayout }: {
+  title: string;
+  palette: { tint: string; fill: string; border: string };
+  children: ReactNode;
+  onLayout?: (event: LayoutChangeEvent) => void;
+}) {
+  return (
+    <View style={styles.group} onLayout={onLayout}>
+      <Text style={[styles.groupTitle, { color: palette.tint }]} accessibilityRole="header">{title}</Text>
+      <Card style={{ backgroundColor: palette.fill, borderColor: palette.border }}>{children}</Card>
+    </View>
+  );
+}
+
+function HintCredits({ credits }: { credits: number }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <Card style={styles.creditCard}>
+      <Pressable
+        onPress={() => setExpanded((previous) => !previous)}
+        accessibilityRole="button"
+        accessibilityLabel={`${credits} hint ${credits === 1 ? 'credit' : 'credits'}. One free hint per puzzle.`}
+        accessibilityHint="Shows how credits work"
+        accessibilityState={{ expanded }}
+        style={({ pressed }) => [styles.creditAction, pressed && styles.pressed]}>
+        <View style={styles.creditIcon}>
+          <Ionicons name="bulb" size={22} color={colors.onAccent} />
+        </View>
+        <View style={styles.rowCopy}>
+          <Text style={styles.actionLabel}>Hint credits</Text>
+          <Text style={styles.creditSubtitle}>1 free hint per puzzle</Text>
+        </View>
+        <Text style={styles.creditCount}>{credits}</Text>
+        <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={17} color={colors.accent} />
+      </Pressable>
+      {expanded && (
+        <View style={styles.creditDetails}>
+          <Text style={type.dim}>Finish an optional ad in the hint panel to earn {CREDITS_PER_REWARD} credits.</Text>
+          <Text style={type.dim}>Credits stay on this device. Clearing app data or uninstalling removes them.</Text>
+        </View>
+      )}
+    </Card>
+  );
+}
+
+function ActionRow({ label, icon, external = false, onPress }: {
+  label: string;
+  icon: IconName;
+  external?: boolean;
+  onPress: () => void;
+}) {
   return (
     <Pressable
       onPress={onPress}
-      accessibilityRole="link"
+      accessibilityRole={external ? 'link' : 'button'}
       accessibilityLabel={label}
-      accessibilityHint="Opens in your browser"
-      style={({ pressed }) => [styles.link, pressed && { backgroundColor: colors.surfaceHigh }]}>
-      <View style={styles.linkText}>
-        <Text style={type.body}>{label}</Text>
-        <Text style={type.dim}>{description}</Text>
+      accessibilityHint={external ? 'Opens in your browser' : undefined}
+      style={({ pressed }) => [styles.action, pressed && styles.pressed]}>
+      <View style={styles.actionIcon}>
+        <Ionicons name={icon} size={19} color={palettes.about.tint} />
       </View>
-      <Ionicons name="open-outline" size={20} color={colors.textDim} />
+      <Text style={[styles.actionLabel, styles.rowCopy]}>{label}</Text>
+      <Ionicons name={external ? 'open-outline' : 'chevron-forward'} size={17} color={palettes.about.tint} />
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { padding: spacing.lg, paddingTop: 0, paddingBottom: spacing.xxl, maxWidth: 520, width: '100%', alignSelf: 'center' },
-  divider: { height: 1, backgroundColor: colors.line, marginLeft: spacing.lg },
-  info: { padding: spacing.lg, gap: spacing.xs },
-  link: { minHeight: 60, flexDirection: 'row', alignItems: 'center', padding: spacing.lg, gap: spacing.md },
-  linkText: { flex: 1, gap: 2 },
+  content: { padding: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.lg, maxWidth: 520, width: '100%', alignSelf: 'center' },
+  group: { gap: spacing.sm },
+  groupTitle: { ...type.label, fontSize: 14, fontWeight: '800', paddingHorizontal: spacing.xs },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: 'rgba(233, 234, 235, 0.16)', marginHorizontal: spacing.md },
+  action: {
+    minHeight: TOUCH + 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  actionIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.23)',
+  },
+  themeSwatch: {
+    width: 33, height: 33, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between',
+    alignContent: 'space-between', borderWidth: 1, borderRadius: 5, overflow: 'hidden',
+  },
+  themeSquare: { width: '48%', height: '48%' },
+  actionLabel: { ...type.body, fontWeight: '700' },
+  rowCopy: { flex: 1 },
+  pressed: { backgroundColor: 'rgba(255, 255, 255, 0.08)' },
+  creditCard: {
+    backgroundColor: '#29241C',
+    backgroundImage: 'linear-gradient(130deg, #332B20 0%, #28231C 64%, #1C1B19 100%)',
+    borderColor: '#695637',
+  },
+  creditAction: {
+    minHeight: 72,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  creditIcon: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.accent,
+    width: 39,
+    height: 39,
+    borderRadius: radius.md,
+    marginRight: spacing.xs,
+  },
+  creditSubtitle: { ...type.dim, fontSize: 12, lineHeight: 17 },
+  creditCount: {
+    color: colors.accent,
+    backgroundColor: '#191713',
+    borderRadius: radius.sm,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    fontSize: 17,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
+  creditDetails: { paddingHorizontal: spacing.md, paddingBottom: spacing.md, gap: spacing.xs },
 });

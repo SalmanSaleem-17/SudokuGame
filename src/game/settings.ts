@@ -1,3 +1,10 @@
+export const BOARD_THEMES = ['charcoal', 'light', 'contrast'] as const;
+export type BoardTheme = (typeof BOARD_THEMES)[number];
+
+export function isBoardTheme(value: unknown): value is BoardTheme {
+  return BOARD_THEMES.some((theme) => theme === value);
+}
+
 export interface Settings {
   /** Show the timer on the game screen. Time is still recorded when hidden. */
   timer: boolean;
@@ -9,6 +16,7 @@ export interface Settings {
   numberFirst: boolean;
   haptics: boolean;
   reducedMotion: boolean;
+  boardTheme: BoardTheme;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -18,4 +26,5 @@ export const DEFAULT_SETTINGS: Settings = {
   numberFirst: false,
   haptics: true,
   reducedMotion: false,
+  boardTheme: 'charcoal',
 };

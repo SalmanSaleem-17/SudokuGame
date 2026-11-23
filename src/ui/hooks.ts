@@ -30,27 +30,38 @@ export function useScreenFocused(): boolean {
   return focused;
 }
 
-/** Elapsed time label. Ticks on its own so nothing else re-renders with it. */
-export function useClockLabel(slot: SessionSlot, savedMs: number): string {
-  // Until the clock is pointed at this session, show the saved time.
-  const read = useCallback(() => formatTime(clock.slot === slot ? clock.read() : savedMs), [slot, savedMs]);
+/** Game time label. Ticks on its own so the board doesn't re-render with it. */
+export function useClockLabel(
+  slot: SessionSlot,
+  sessionId: string,
+  savedMs: number,
+  timeLimitMs: number | null,
+  ticking: boolean,
+): string {
+  const read = useCallback(() => {
+    const elapsed = ticking && clock.matches(slot, sessionId) ? clock.read() : savedMs;
+    if (timeLimitMs === null) return formatTime(elapsed).padStart(5, '0');
+    const remaining = Math.max(0, timeLimitMs - elapsed);
+    return formatTime(Math.ceil(remaining / 1000) * 1000).padStart(5, '0');
+  }, [slot, sessionId, savedMs, timeLimitMs, ticking]);
   const [label, setLabel] = useState(read);
   useEffect(() => {
     const tick = () => setLabel(read());
     tick();
+    if (!ticking) return;
     const id = setInterval(tick, 500);
     return () => clearInterval(id);
-  }, [read]);
+  }, [read, ticking]);
   return label;
 }
 
 /** Largest square board that fits beside the given vertical chrome. */
-export function useBoardSize(reservedHeight: number): number {
+export function useBoardSize(reservedHeight: number, horizontalGutter = 8): number {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const byWidth = width - insets.left - insets.right - 16;
+  const byWidth = width - insets.left - insets.right - horizontalGutter * 2;
   const byHeight = height - insets.top - insets.bottom - reservedHeight;
-  return Math.floor(Math.max(252, Math.min(byWidth, byHeight, 560)));
+  return Math.floor(Math.min(byWidth, 560, Math.max(252, byHeight)));
 }
 
 type HapticKind = 'tap' | 'warn' | 'success';

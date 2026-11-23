@@ -9,7 +9,11 @@ import {
   createSession,
   enterDigit,
   eraseCell,
+  getSessionFailure,
+  getSessionRules,
+  getTimeLimitMs,
   isValidSession,
+  redoMove,
   toggleNote,
   undoMove,
 } from '../src/game/session';
@@ -97,6 +101,24 @@ describe('notes and undo', () => {
     expect(undone.values).toEqual(before.values);
     expect(undone.notes).toEqual(before.notes);
     expect(undone.undo.length).toBe(before.undo.length);
+
+    const redone = redoMove(undone);
+    expect(redone.values).toEqual(after.values);
+    expect(redone.notes).toEqual(after.notes);
+    expect(redone.undo).toEqual(after.undo);
+    expect(redone.redo).toEqual([]);
+  });
+
+  it('redos a wrong entry without charging another mistake and drops redo after a new move', () => {
+    const s = fresh();
+    const cell = emptyCells(s)[0];
+    const wrong = (s.solution[cell] % 9) + 1;
+    const undone = undoMove(enterDigit(s, cell, wrong, SMART));
+    const redone = redoMove(undone);
+    expect(redone.values[cell]).toBe(wrong);
+    expect(redone.mistakes).toBe(1);
+    const noted = toggleNote(undone, cell, 1);
+    expect(redoMove(noted)).toBe(noted);
   });
 
   it('leaves peer notes alone when smart notes are off', () => {
@@ -123,6 +145,36 @@ describe('notes and undo', () => {
     expect(isValidSession(null)).toBe(false);
     expect(isValidSession({ ...fresh(), values: [1, 2, 3] })).toBe(false);
     expect(isValidSession({ ...fresh(), version: 99 })).toBe(false);
+  });
+});
+
+describe('classic setup', () => {
+  it('loads older saves with an elapsed timer and unlimited mistakes', () => {
+    const saved: unknown = JSON.parse(JSON.stringify(fresh()));
+    expect(isValidSession(saved)).toBe(true);
+    if (!isValidSession(saved)) throw new Error('Expected a usable older save');
+    expect(getSessionRules(saved)).toEqual({ timerMinutes: 0, mistakes: 'unlimited' });
+    expect(getTimeLimitMs(saved)).toBeNull();
+    expect(getSessionFailure(saved)).toBeNull();
+  });
+
+  it('stops counting mistakes when switched off', () => {
+    const s = createSession(puzzle, 'classic', 's1', 1000, null, { timerMinutes: 0, mistakes: 'off' });
+    const cell = emptyCells(s)[0];
+    expect(enterDigit(s, cell, (s.solution[cell] % 9) + 1, PLAIN).mistakes).toBe(0);
+  });
+
+  it('ends a limited game on the last wrong entry and freezes the board', () => {
+    let s = createSession(puzzle, 'classic', 's1', 1000, null, { timerMinutes: 0, mistakes: 3 });
+    const cells = emptyCells(s);
+    s = enterDigit(s, cells[0], (s.solution[cells[0]] % 9) + 1, PLAIN);
+    s = enterDigit(s, cells[1], (s.solution[cells[1]] % 9) + 1, PLAIN);
+    expect(getSessionFailure(s)).toBeNull();
+    s = enterDigit(s, cells[2], (s.solution[cells[2]] % 9) + 1, PLAIN);
+    expect(getSessionFailure(s)).toBe('mistakes');
+    expect(eraseCell(s, cells[2])).toBe(s);
+    expect(clearIncorrect(s)).toBe(s);
+    expect(undoMove(s)).toBe(s);
   });
 });
 

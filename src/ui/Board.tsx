@@ -3,8 +3,9 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { PEERS, colOf, digitsOf, hasDigit, rowOf } from '../engine/grid';
 import { MARK_PATTERN, MARK_TARGET, MARK_UNIT } from '../game/overlay';
+import { type BoardPalette, useBoardPalette } from './boardTheme';
 import { Motion } from './Motion';
-import { colors, useReducedMotion } from './theme';
+import { useReducedMotion } from './theme';
 
 const MARK_NONE = 0;
 
@@ -25,8 +26,7 @@ export interface BoardProps {
 }
 
 const THIN = 1;
-const THICK = 2;
-
+const THICK = 3;
 /** Pixel layout: an outer frame, thick lines between boxes, thin lines between cells. */
 function layout(size: number) {
   const lines = THICK * 4 + THIN * 6;
@@ -39,6 +39,7 @@ export const Board = memo(function Board(props: BoardProps) {
   const { size, values, givens, notes, selected, highlightDigit, errors, marks, onCellPress, disabled } = props;
   const { cell, offset } = useMemo(() => layout(size), [size]);
   const reducedMotion = useReducedMotion();
+  const palette = useBoardPalette();
   const peers = useMemo(() => (selected === null ? null : new Set(PEERS[selected])), [selected]);
 
   const boxes = [];
@@ -46,7 +47,7 @@ export const Board = memo(function Board(props: BoardProps) {
     const left = offset((b % 3) * 3);
     const top = offset(Math.floor(b / 3) * 3);
     const span = cell * 3 + THIN * 2;
-    boxes.push(<View key={b} style={[styles.box, { left, top, width: span, height: span }]} />);
+    boxes.push(<View key={b} pointerEvents="none" style={[styles.box, { left, top, width: span, height: span, backgroundColor: palette.line }]} />);
   }
 
   const cells = [];
@@ -70,12 +71,13 @@ export const Board = memo(function Board(props: BoardProps) {
         onPress={onCellPress}
         disabled={!!disabled}
         animate={selected === i && !reducedMotion}
+        palette={palette}
       />,
     );
   }
 
   return (
-    <View style={[styles.board, { width: size, height: size }]} accessibilityLabel="Sudoku board">
+    <View style={[styles.board, { width: size, height: size, backgroundColor: palette.frame }]} accessibilityLabel="Sudoku board">
       {boxes}
       {cells}
     </View>
@@ -99,6 +101,7 @@ interface CellProps {
   onPress: (cell: number) => void;
   disabled: boolean;
   animate: boolean;
+  palette: BoardPalette;
 }
 
 function describeCell(p: CellProps): string {
@@ -117,26 +120,31 @@ function describeCell(p: CellProps): string {
  * appearance changed.
  */
 const Cell = memo(function Cell(p: CellProps) {
+  const boardColors = p.palette;
   const box = Math.floor(rowOf(p.index) / 3) + Math.floor(colOf(p.index) / 3);
   const background = p.selected
-    ? colors.accent
-    : p.match
-      ? colors.accentSoft
-      : p.mark === MARK_PATTERN || p.mark === MARK_TARGET
-        ? colors.surfaceHigh
-        : p.peer || p.mark === MARK_UNIT
-          ? colors.cellPeer
-          : box % 2 === 0 ? colors.cell : colors.cellAlternate;
-  const digitColor = p.selected ? colors.onAccent : p.error ? colors.warn : p.given ? colors.text : colors.entry;
+    ? boardColors.selected
+    : p.error
+      ? boardColors.errorCell
+      : p.match
+        ? boardColors.match
+        : p.mark === MARK_PATTERN || p.mark === MARK_TARGET
+          ? boardColors.hintCell
+          : p.peer || p.mark === MARK_UNIT
+            ? boardColors.peer
+            : box % 2 === 0 ? boardColors.cell : boardColors.alternate;
+  const digitColor = p.selected
+    ? p.error ? boardColors.selectedError : boardColors.selectedText
+    : p.error ? boardColors.error : p.match ? boardColors.matchText : p.given ? boardColors.text : boardColors.entry;
   const digit = (
     <Text
       style={[
         styles.digit,
         {
-          fontSize: p.size * 0.6,
+          fontSize: p.size * 0.66,
           lineHeight: p.size * 0.78,
           color: digitColor,
-          fontWeight: p.given ? '700' : '500',
+          fontWeight: p.given ? '800' : '600',
           textDecorationLine: p.error ? 'underline' : 'none',
         },
       ]}
@@ -151,7 +159,7 @@ const Cell = memo(function Cell(p: CellProps) {
       disabled={p.disabled}
       accessibilityRole="button"
       accessibilityLabel={describeCell(p)}
-      accessibilityState={{ selected: p.selected }}
+      accessibilityState={{ selected: p.selected, disabled: p.disabled }}
       style={[styles.cell, { left: p.left, top: p.top, width: p.size, height: p.size, backgroundColor: background }]}>
       {p.value !== 0 ? (
         p.animate && !p.given ? (
@@ -171,9 +179,12 @@ const Cell = memo(function Cell(p: CellProps) {
                     allowFontScaling={false}
                     style={[
                       styles.note,
-                      { fontSize: p.size * 0.26, lineHeight: p.size * 0.31 },
+                      {
+                        fontSize: p.size * 0.26,
+                        lineHeight: p.size * 0.31,
+                        color: p.selected ? boardColors.selectedText : strong ? boardColors.matchText : boardColors.notes,
+                      },
                       strong && styles.noteStrong,
-                      p.selected && { color: colors.onAccent },
                     ]}>
                     {on ? d : ' '}
                   </Text>
@@ -186,13 +197,13 @@ const Cell = memo(function Cell(p: CellProps) {
       {/* Selection ring: selection is visible as a shape, not only as a fill colour. */}
       {p.selected && (
         <View pointerEvents="none" style={FILL}>
-          <Motion variant="pop" reduced={!p.animate} style={styles.selectedRing} />
+          <Motion variant="pop" reduced={!p.animate} style={[styles.selectedRing, { borderColor: boardColors.selection }]} />
         </View>
       )}
-      {p.mark === MARK_PATTERN && !p.selected && <View pointerEvents="none" style={styles.patternRing} />}
-      {p.mark === MARK_TARGET && !p.selected && <View pointerEvents="none" style={styles.targetRing} />}
+      {p.mark === MARK_PATTERN && !p.selected && <View pointerEvents="none" style={[styles.patternRing, { borderColor: boardColors.hint }]} />}
+      {p.mark === MARK_TARGET && !p.selected && <View pointerEvents="none" style={[styles.targetRing, { borderColor: boardColors.error }]} />}
       {p.error && (
-        <View pointerEvents="none" style={[styles.errorDot, { backgroundColor: p.selected ? colors.onAccent : colors.warn }]} />
+        <View pointerEvents="none" style={[styles.errorDot, { backgroundColor: p.selected ? boardColors.selectedError : boardColors.error }]} />
       )}
     </Pressable>
   );
@@ -201,16 +212,16 @@ const Cell = memo(function Cell(p: CellProps) {
 const FILL = { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 } as const;
 
 const styles = StyleSheet.create({
-  board: { backgroundColor: colors.lineStrong, borderRadius: 8, overflow: 'hidden' },
-  box: { position: 'absolute', backgroundColor: colors.line },
+  board: { borderRadius: 5, overflow: 'hidden' },
+  box: { position: 'absolute' },
   cell: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
   digit: { textAlign: 'center', includeFontPadding: false, fontVariant: ['tabular-nums'] },
   notes: { ...FILL, padding: 1, justifyContent: 'center' },
   noteRow: { flexDirection: 'row' },
-  note: { flex: 1, textAlign: 'center', color: colors.textDim, includeFontPadding: false },
-  noteStrong: { color: colors.text, fontWeight: '800' },
-  selectedRing: { ...FILL, borderWidth: 2, borderColor: colors.onAccent },
-  patternRing: { ...FILL, borderWidth: 2, borderColor: colors.accent },
-  targetRing: { ...FILL, borderWidth: 2, borderColor: colors.warn, borderStyle: 'dashed' },
+  note: { flex: 1, textAlign: 'center', includeFontPadding: false },
+  noteStrong: { fontWeight: '800' },
+  selectedRing: { ...FILL, borderWidth: 2, borderRadius: 3 },
+  patternRing: { ...FILL, borderWidth: 2 },
+  targetRing: { ...FILL, borderWidth: 2, borderStyle: 'dashed' },
   errorDot: { position: 'absolute', top: 3, right: 3, width: 6, height: 6, borderRadius: 3 },
 });

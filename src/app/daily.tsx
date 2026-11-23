@@ -10,9 +10,9 @@ import { appStore, getDailyCompletion, startDaily } from '../state/app';
 import { formatTime } from '../state/clock';
 import { useStore } from '../state/store';
 import type { Completion } from '../storage/repository';
-import { Button, Card, IconButton, Screen, SectionLabel } from '../ui/controls';
+import { Button, Card, IconButton, Screen } from '../ui/controls';
 import { useAppActive, useScreenFocused } from '../ui/hooks';
-import { colors, spacing, type } from '../ui/theme';
+import { colors, gradients, radius, spacing, type } from '../ui/theme';
 
 const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
@@ -73,16 +73,23 @@ export default function DailyScreen() {
 
   return (
     <Screen title="Daily Puzzle">
-      <ScrollView contentContainerStyle={styles.content}>
-        <Card style={styles.today}>
-          <Text style={type.label}>TODAY</Text>
-          <Text style={type.heading}>{longDate(today)}</Text>
-          <Text style={type.dim}>{DIFFICULTY_NAMES[puzzle.difficulty]} puzzle</Text>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <Card style={styles.hero}>
+          <View style={styles.heroHeading}>
+            <View style={styles.heroText}>
+              <Text style={styles.todayLabel}>TODAY’S CHALLENGE</Text>
+              <Text style={styles.heroTitle} accessibilityRole="header">{longDate(today)}</Text>
+              <Text style={type.dim}>{DIFFICULTY_NAMES[puzzle.difficulty]} difficulty</Text>
+            </View>
+            <View style={styles.calendarEmblem} accessible={false}>
+              <Ionicons name="calendar-outline" size={30} color={colors.accent} />
+            </View>
+          </View>
           {status.kind === 'completed' ? (
             <View style={styles.doneRow}>
               <Ionicons name="checkmark-circle" size={22} color={colors.good} />
-              <Text style={type.body}>
-                Completed{result ? ` in ${formatTime(result.timeMs)}` : ''}. Come back tomorrow for a new one.
+              <Text style={[type.body, styles.doneText]}>
+                Completed{result ? ` in ${formatTime(result.timeMs)}` : ''}. Come back tomorrow for a new puzzle.
               </Text>
             </View>
           ) : status.kind === 'resume' ? (
@@ -101,8 +108,11 @@ export default function DailyScreen() {
           </Card>
         )}
 
-        <SectionLabel>Completed days</SectionLabel>
         <Card style={styles.calendar}>
+          <View style={styles.calendarHeading}>
+            <Ionicons name="checkmark-done-outline" size={21} color={colors.blue} />
+            <Text style={type.heading} accessibilityRole="header">Completed days</Text>
+          </View>
           <View style={styles.monthRow}>
             <IconButton icon="chevron-back" label="Previous month" onPress={() => shiftMonth(-1)} />
             <Text style={styles.monthName}>{monthName}</Text>
@@ -144,10 +154,24 @@ export default function DailyScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: { padding: spacing.lg, gap: spacing.md, maxWidth: 520, width: '100%', alignSelf: 'center' },
-  today: { padding: spacing.lg, gap: spacing.sm },
-  doneRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs },
-  calendar: { padding: spacing.sm },
+  content: { padding: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.lg, maxWidth: 520, width: '100%', alignSelf: 'center' },
+  hero: { padding: spacing.lg, gap: spacing.md, backgroundImage: gradients.panel },
+  today: { padding: spacing.lg, gap: spacing.md },
+  heroHeading: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xs },
+  heroText: { flex: 1, gap: spacing.xs },
+  todayLabel: { ...type.label, color: colors.accent, letterSpacing: 1 },
+  heroTitle: { ...type.title, fontSize: 27, lineHeight: 32 },
+  calendarEmblem: {
+    width: 59, height: 59, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.accentSoft, borderColor: colors.accentEdge, borderWidth: 1,
+  },
+  doneRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md,
+    borderRadius: radius.sm, backgroundColor: colors.blueSoft,
+  },
+  doneText: { flex: 1, fontSize: 14, lineHeight: 20 },
+  calendar: { padding: spacing.sm, paddingBottom: spacing.md },
+  calendarHeading: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm },
   monthRow: { flexDirection: 'row', alignItems: 'center' },
   monthName: { flex: 1, textAlign: 'center', fontSize: 16, fontWeight: '600', color: colors.text },
   week: { flexDirection: 'row' },
@@ -155,7 +179,7 @@ const styles = StyleSheet.create({
   day: { flex: 1, aspectRatio: 1, padding: 3 },
   dayInner: { flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 999, borderWidth: 2, borderColor: 'transparent' },
   dayDone: { backgroundColor: colors.accent },
-  dayToday: { borderColor: colors.text },
+  dayToday: { borderColor: colors.accent },
   dayText: { fontSize: 14, color: colors.textDim, fontVariant: ['tabular-nums'] },
   dayTextDone: { color: colors.onAccent, fontWeight: '700' },
   tick: { position: 'absolute', bottom: 1 },

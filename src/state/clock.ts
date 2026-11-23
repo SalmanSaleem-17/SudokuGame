@@ -4,24 +4,31 @@ import type { SessionSlot } from '../game/session';
  * Tracks active play time for the session on screen. It lives outside React state so a
  * ticking timer never re-renders the board; only the timer label reads it.
  */
-export class GameClock {
-  slot: SessionSlot | null = null;
+export class GameClock<Slot extends string = SessionSlot> {
+  slot: Slot | null = null;
+  private sessionId: string | null = null;
   private baseMs = 0;
   private startedAt: number | null = null;
 
-  constructor(private readonly now: () => number = Date.now) {}
+  constructor(private readonly now: () => number = () => performance.now()) {}
 
   /** Points the clock at a session, stopped, with its saved elapsed time. */
-  load(slot: SessionSlot, elapsedMs: number) {
+  load(slot: Slot, elapsedMs: number, sessionId: string | null = null) {
     this.slot = slot;
+    this.sessionId = sessionId;
     this.baseMs = elapsedMs;
     this.startedAt = null;
   }
 
   unload() {
     this.slot = null;
+    this.sessionId = null;
     this.baseMs = 0;
     this.startedAt = null;
+  }
+
+  matches(slot: Slot, sessionId: string): boolean {
+    return this.slot === slot && this.sessionId === sessionId;
   }
 
   get running() {

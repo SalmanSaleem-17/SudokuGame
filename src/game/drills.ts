@@ -4,28 +4,41 @@
  */
 import { UNITS, computeCandidates, parseGrid, unitName } from '../engine/grid';
 import { DrillRecord, DrillTechnique, findDrillSteps } from '../engine/pool';
-import type { Step } from '../engine/techniques';
+import { TECHNIQUE_NAMES, type Step, type Technique } from '../engine/techniques';
 
-export const DRILL_INFO: Record<DrillTechnique, { name: string; summary: string; lesson: string }> = {
+export const DRILL_INFO: Record<DrillTechnique, { title: string; summary: string; steps: readonly string[] }> = {
   nakedSingle: {
-    name: 'Naked singles',
-    summary: 'A cell with only one possible digit.',
-    lesson:
-      'Look at one empty cell and cross off every digit already in its row, column and box. If only one digit survives, it must go there.',
+    title: 'One Number Fits',
+    summary: 'Find the only number that fits a square.',
+    steps: [
+      'Pick an empty square.',
+      'Rule out numbers already in its row, column or box.',
+      'Place the only number left.',
+    ],
   },
   hiddenSingle: {
-    name: 'Hidden singles',
-    summary: 'A digit with only one possible cell in a row, column or box.',
-    lesson:
-      'Pick a row, column or box and one missing digit. Rule out each empty cell that already sees that digit. If only one cell is left, the digit goes there, even if that cell has other candidates.',
+    title: 'One Spot Left',
+    summary: 'Find the only square a number can go in.',
+    steps: [
+      'Pick a missing number in a row, column or box.',
+      'Check which empty squares can hold that number.',
+      'Place it if there is only one square left.',
+    ],
   },
   lockedCandidates: {
-    name: 'Locked candidates',
-    summary: 'A digit confined to one line inside a box.',
-    lesson:
-      'When every place a digit can go in a box lies in one row or column, the digit is locked to that line there. It can be removed from the rest of that row or column. The same works from a line into a box.',
+    title: 'Narrow the Options',
+    summary: 'Use a line inside a box to rule out numbers elsewhere.',
+    steps: [
+      'In a box, check whether a number’s possible spots all lie in one row or column.',
+      'Cross off that number in the rest of that row or column outside the box.',
+      'Starting with a line works too. If all spots for a number share one box, cross it off elsewhere in that box.',
+    ],
   },
 };
+
+export function techniqueDisplayName(technique: Technique): string {
+  return technique in DRILL_INFO ? DRILL_INFO[technique as DrillTechnique].title : TECHNIQUE_NAMES[technique];
+}
 
 export interface Drill {
   id: string;
@@ -55,7 +68,7 @@ export function buildDrill(record: DrillRecord): Drill {
     const cell = step.placement!.cell;
     return {
       ...base,
-      prompt: 'Only one digit can go in the highlighted cell. Which digit is it?',
+      prompt: 'Which number fits the highlighted square?',
       answerType: 'digit',
       focusCells: [cell],
       check: (digit) => (digit === step.placement!.digit ? step : null),
@@ -70,7 +83,7 @@ export function buildDrill(record: DrillRecord): Drill {
     const digit = step.placement!.digit;
     return {
       ...base,
-      prompt: `Where does ${digit} go in the highlighted ${unitName(step.units[0])}? Tap the cell.`,
+      prompt: `Where does ${digit} go in the highlighted ${unitName(step.units[0])}? Tap a square.`,
       answerType: 'cell',
       focusCells: unitCells(step),
       check: (cell) => (cell === step.placement!.cell ? step : null),
@@ -88,7 +101,7 @@ export function buildDrill(record: DrillRecord): Drill {
   return {
     ...base,
     candidates,
-    prompt: `In the highlighted ${unitName(house)}, one digit can only go in cells that share ${kind}. Which digit is it?`,
+    prompt: `In the highlighted ${unitName(house)}, which number’s possible spots share ${kind}?`,
     answerType: 'digit',
     focusCells: unitCells(first),
     check: (digit) => inHouse.find((s) => s.eliminations[0].digit === digit) ?? null,
