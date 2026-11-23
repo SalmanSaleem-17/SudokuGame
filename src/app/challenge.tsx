@@ -7,6 +7,7 @@ import {
 
 import { DIFFICULTY_NAMES } from '../engine/grader';
 import { type Challenge, decodeChallenge, describeChallengeRules } from '../game/challenge';
+import { STORE_URL } from '../game/links';
 import { getSessionFailure } from '../game/session';
 import { appStore, startChallenge } from '../state/app';
 import { formatTime } from '../state/clock';
@@ -95,6 +96,8 @@ export default function ChallengeScreen() {
           selected.code,
           '',
           'Open Challenge a Friend in Sudoku Studio and paste this message.',
+          '',
+          `Get Sudoku Studio: ${STORE_URL}`,
         ].join('\n'),
       });
     } catch {

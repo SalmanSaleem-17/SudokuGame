@@ -1,8 +1,20 @@
-export const BOARD_THEMES = ['charcoal', 'light', 'contrast'] as const;
+export const BOARD_THEMES = [
+  'charcoal', 'light', 'contrast',
+  'midnight', 'forest', 'ocean',
+  'lavender', 'rose', 'sunset',
+  'slate', 'sand', 'mint',
+] as const;
 export type BoardTheme = (typeof BOARD_THEMES)[number];
 
 export function isBoardTheme(value: unknown): value is BoardTheme {
   return BOARD_THEMES.some((theme) => theme === value);
+}
+
+/** Hours of the day the Daily Puzzle reminder can be set to. */
+export const REMINDER_HOURS = [8, 12, 18, 21] as const;
+
+export function isReminderHour(value: unknown): value is (typeof REMINDER_HOURS)[number] {
+  return REMINDER_HOURS.some((hour) => hour === value);
 }
 
 export interface Settings {
@@ -17,6 +29,9 @@ export interface Settings {
   haptics: boolean;
   reducedMotion: boolean;
   boardTheme: BoardTheme;
+  /** A local notification each day when the Daily Puzzle is ready. Off until the player opts in. */
+  reminder: boolean;
+  reminderHour: (typeof REMINDER_HOURS)[number];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -27,4 +42,6 @@ export const DEFAULT_SETTINGS: Settings = {
   haptics: true,
   reducedMotion: false,
   boardTheme: 'charcoal',
+  reminder: false,
+  reminderHour: 18,
 };

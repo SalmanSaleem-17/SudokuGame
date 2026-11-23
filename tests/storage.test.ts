@@ -47,7 +47,7 @@ function applyHint(session: Session): Session {
 describe('first launch', () => {
   it('starts with defaults, no sessions and no credits, with nothing but local storage', async () => {
     const { repo } = await setup();
-    expect(await repo.loadSessions()).toEqual({ classic: null, daily: null, challenge: null, technique: null, weekly: null });
+    expect(await repo.loadSessions()).toEqual({ classic: null, daily: null, challenge: null, technique: null, weekly: null, level: null });
     expect(await repo.getCredits()).toBe(0);
     expect((await repo.loadSettings()).timer).toBe(true);
     expect(await repo.listCompletions()).toEqual([]);
@@ -198,7 +198,7 @@ describe('friend challenges', () => {
     await repo.saveSession(daily, 2);
     await repo.saveSession(attempt, 2);
 
-    expect(await (await restart()).loadSessions()).toEqual({ classic, daily, challenge: attempt, technique: null, weekly: null });
+    expect(await (await restart()).loadSessions()).toEqual({ classic, daily, challenge: attempt, technique: null, weekly: null, level: null });
     expect(attempt.givens.join('')).toBe(challenge.puzzle.givens);
     expect(getSessionFailure({ ...attempt, elapsedMs: 600_000 })).toBe('time');
     expect(getSessionFailure({ ...attempt, mistakes: 5 })).toBe('mistakes');

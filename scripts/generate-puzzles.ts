@@ -1,21 +1,29 @@
 /// <reference types="node" />
 /**
  * Offline puzzle generator. Run with `npm run generate:puzzles`; it is never run in the app.
- * Output is deterministic for a given SEED, and is checked by `npm run validate:puzzles`.
+ *
+ * It only ever ADDS puzzles: everything already in src/data/puzzles.json keeps its id, so
+ * saved games, level progress and challenge codes that refer to a puzzle stay valid.
+ * The result is checked by `npm run validate:puzzles`.
  */
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { DIFFICULTIES, Difficulty, EASY_MIN_GIVENS, gradePuzzle, solveLogically } from '../src/engine/grader';
+import { DIFFICULTIES, Difficulty, EASY_MIN_GIVENS, gradePuzzle } from '../src/engine/grader';
 import { digitsOf, serializeGrid } from '../src/engine/grid';
-import { DRILL_TECHNIQUES, DrillRecord, DrillTechnique, PuzzleRecord, findDrillSteps } from '../src/engine/pool';
+import type { PuzzleRecord } from '../src/engine/pool';
 import { countSolutions, solveRandom } from '../src/engine/solver';
-import { applyStep, createState } from '../src/engine/techniques';
 
-const SEED = 20261121;
-const TARGET: Record<Difficulty, number> = { easy: 40, medium: 40, hard: 40, expert: 20 };
-const DRILLS_PER_TECHNIQUE = 12;
-const MAX_ATTEMPTS = 60000;
+const dataDir = join(__dirname, '..', 'src', 'data');
+const puzzlesPath = join(dataDir, 'puzzles.json');
+
+/** How many puzzles each difficulty should end up with. */
+const TARGET: Record<Difficulty, number> = { easy: 150, medium: 150, hard: 150, expert: 100 };
+const MAX_MINUTES = Number(process.env.GENERATE_MINUTES ?? 20);
+
+const existing = JSON.parse(readFileSync(puzzlesPath, 'utf8')) as PuzzleRecord[];
+// A new seed per run, derived from what is already there, keeps runs reproducible.
+const SEED = 20261121 + existing.length * 7919;
 
 function mulberry32(seed: number) {
   let a = seed >>> 0;
@@ -57,26 +65,35 @@ function dig(solution: number[], minGivens: number): number[] {
   return grid;
 }
 
-const pools: Record<Difficulty, PuzzleRecord[]> = { easy: [], medium: [], hard: [], expert: [] };
+const counts: Record<Difficulty, number> = { easy: 0, medium: 0, hard: 0, expert: 0 };
+const nextNumber: Record<Difficulty, number> = { easy: 1, medium: 1, hard: 1, expert: 1 };
 const seen = new Set<string>();
-const full = () => DIFFICULTIES.every((d) => pools[d].length >= TARGET[d]);
+for (const puzzle of existing) {
+  counts[puzzle.difficulty]++;
+  nextNumber[puzzle.difficulty] = Math.max(nextNumber[puzzle.difficulty], Number(puzzle.id.split('-')[1]) + 1);
+  seen.add(puzzle.givens);
+}
 
+const added: PuzzleRecord[] = [];
+const full = () => DIFFICULTIES.every((d) => counts[d] >= TARGET[d]);
+const deadline = Date.now() + MAX_MINUTES * 60_000;
 let attempts = 0;
-while (!full() && attempts < MAX_ATTEMPTS) {
+
+while (!full() && Date.now() < deadline) {
   attempts++;
   const solution = solveRandom((mask) => shuffle(digitsOf(mask)));
   // Alternate between generous and sparse puzzles so every bucket fills.
-  const wantEasy = pools.easy.length < TARGET.easy && attempts % 3 === 0;
+  const wantEasy = counts.easy < TARGET.easy && attempts % 3 === 0;
   const minGivens = wantEasy ? EASY_MIN_GIVENS + 2 + Math.floor(random() * 5) : 22 + Math.floor(random() * 8);
   const givens = dig(solution, minGivens);
   const grade = gradePuzzle(givens);
   if (!grade.difficulty) continue;
-  const bucket = pools[grade.difficulty];
   const key = serializeGrid(givens);
-  if (bucket.length >= TARGET[grade.difficulty] || seen.has(key)) continue;
+  if (counts[grade.difficulty] >= TARGET[grade.difficulty] || seen.has(key)) continue;
   seen.add(key);
-  bucket.push({
-    id: '',
+  counts[grade.difficulty]++;
+  added.push({
+    id: `${grade.difficulty}-${String(nextNumber[grade.difficulty]++).padStart(3, '0')}`,
     difficulty: grade.difficulty,
     givens: key,
     solution: serializeGrid(solution),
@@ -85,57 +102,8 @@ while (!full() && attempts < MAX_ATTEMPTS) {
   });
 }
 
-const puzzles: PuzzleRecord[] = [];
-for (const difficulty of DIFFICULTIES) {
-  const bucket = pools[difficulty];
-  if (bucket.length < 10) {
-    console.warn(`${difficulty}: only ${bucket.length} found; leaving this difficulty out of the pool.`);
-    continue;
-  }
-  bucket.sort((a, b) => a.score - b.score);
-  bucket.forEach((p, i) => (p.id = `${difficulty}-${String(i + 1).padStart(3, '0')}`));
-  puzzles.push(...bucket);
-}
+writeFileSync(puzzlesPath, JSON.stringify([...existing, ...added], null, 1) + '\n');
 
-/* Practice drills: positions taken from the solution paths of bundled puzzles. */
-const drills: DrillRecord[] = [];
-const drillSources: Record<DrillTechnique, PuzzleRecord[]> = {
-  hiddenSingle: pools.easy,
-  nakedSingle: [...pools.medium, ...pools.hard, ...pools.expert].filter((p) => p.techniques.nakedSingle),
-  lockedCandidates: [...pools.hard, ...pools.expert].filter((p) => p.techniques.lockedCandidates),
-};
-for (const technique of DRILL_TECHNIQUES) {
-  let made = 0;
-  for (const puzzle of shuffle(drillSources[technique].slice())) {
-    if (made >= DRILLS_PER_TECHNIQUE) break;
-    const givens = [...puzzle.givens].map(Number);
-    const path = solveLogically(givens).steps;
-    const state = createState(givens);
-    let chosen: number[] | null = null;
-    for (let i = 0; i < path.length; i++) {
-      const step = path[i];
-      const filled = state.values.filter((v) => v !== 0).length;
-      // Hidden-single drills start mid-game so the answer is not a trivial last cell.
-      const suitable =
-        step.technique === technique &&
-        (technique !== 'hiddenSingle' || (filled >= 40 && filled <= 60)) &&
-        findDrillSteps(state.values, technique).length > 0;
-      if (suitable) {
-        chosen = state.values.slice();
-        break;
-      }
-      applyStep(state, step);
-    }
-    if (!chosen) continue;
-    made++;
-    drills.push({ id: `${technique}-${String(made).padStart(2, '0')}`, technique, grid: serializeGrid(chosen) });
-  }
-}
-
-const dataDir = join(__dirname, '..', 'src', 'data');
-writeFileSync(join(dataDir, 'puzzles.json'), JSON.stringify(puzzles, null, 1) + '\n');
-writeFileSync(join(dataDir, 'drills.json'), JSON.stringify(drills, null, 1) + '\n');
-
-console.log(`Attempts: ${attempts}`);
-for (const d of DIFFICULTIES) console.log(`${d}: ${pools[d].length}`);
-console.log(`Drills: ${drills.length}`);
+console.log(`Attempts: ${attempts}, added ${added.length}`);
+for (const d of DIFFICULTIES) console.log(`${d}: ${counts[d]} of ${TARGET[d]}`);
+if (!full()) console.log(`Stopped at the ${MAX_MINUTES}-minute limit. Run again to keep adding.`);

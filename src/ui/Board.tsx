@@ -21,6 +21,8 @@ export interface BoardProps {
   errors: ReadonlySet<number>;
   /** Hint or drill marks per cell. */
   marks?: ReadonlyMap<number, number>;
+  /** Player colour marks per cell; 0 or absent means unmarked. */
+  tints?: readonly number[];
   onCellPress: (cell: number) => void;
   disabled?: boolean;
 }
@@ -36,7 +38,7 @@ function layout(size: number) {
 }
 
 export const Board = memo(function Board(props: BoardProps) {
-  const { size, values, givens, notes, selected, highlightDigit, errors, marks, onCellPress, disabled } = props;
+  const { size, values, givens, notes, selected, highlightDigit, errors, marks, tints, onCellPress, disabled } = props;
   const { cell, offset } = useMemo(() => layout(size), [size]);
   const reducedMotion = useReducedMotion();
   const palette = useBoardPalette();
@@ -68,6 +70,7 @@ export const Board = memo(function Board(props: BoardProps) {
         noteDigit={highlightDigit !== 0 && values[i] === 0 && hasDigit(notes[i], highlightDigit) ? highlightDigit : 0}
         error={errors.has(i)}
         mark={marks?.get(i) ?? MARK_NONE}
+        tint={tints?.[i] ?? 0}
         onPress={onCellPress}
         disabled={!!disabled}
         animate={selected === i && !reducedMotion}
@@ -98,6 +101,7 @@ interface CellProps {
   noteDigit: number;
   error: boolean;
   mark: number;
+  tint: number;
   onPress: (cell: number) => void;
   disabled: boolean;
   animate: boolean;
@@ -112,6 +116,7 @@ function describeCell(p: CellProps): string {
   if (p.error) parts.push('conflict');
   if (p.mark === MARK_PATTERN) parts.push('highlighted by hint');
   if (p.mark === MARK_TARGET) parts.push('affected by hint');
+  if (p.tint > 0) parts.push(`colour mark ${p.tint}`);
   return parts.join(', ');
 }
 
@@ -202,6 +207,8 @@ const Cell = memo(function Cell(p: CellProps) {
       )}
       {p.mark === MARK_PATTERN && !p.selected && <View pointerEvents="none" style={[styles.patternRing, { borderColor: boardColors.hint }]} />}
       {p.mark === MARK_TARGET && !p.selected && <View pointerEvents="none" style={[styles.targetRing, { borderColor: boardColors.error }]} />}
+      {/* Each colour mark sits on a different edge, so marks differ by position as well as colour. */}
+      {p.tint > 0 && <View pointerEvents="none" style={[TINT_EDGES[p.tint - 1], { backgroundColor: TINT_COLORS[p.tint - 1] }]} />}
       {p.error && (
         <View pointerEvents="none" style={[styles.errorDot, { backgroundColor: p.selected ? boardColors.selectedError : boardColors.error }]} />
       )}
@@ -210,6 +217,14 @@ const Cell = memo(function Cell(p: CellProps) {
 });
 
 const FILL = { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 } as const;
+
+/** Colours for the player's cell marks, readable on dark and light boards. */
+export const TINT_COLORS = ['#3F9BFF', '#A46BFF', '#2FB872'] as const;
+const TINT_EDGES = [
+  { position: 'absolute', left: 0, right: 0, bottom: 0, height: 4 },
+  { position: 'absolute', top: 0, bottom: 0, left: 0, width: 4 },
+  { position: 'absolute', left: 0, right: 0, top: 0, height: 4 },
+] as const;
 
 const styles = StyleSheet.create({
   board: { borderRadius: 5, overflow: 'hidden' },

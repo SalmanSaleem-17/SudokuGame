@@ -9,6 +9,7 @@ import {
   describeChallengeRules,
   encodeChallengeScore,
 } from '../game/challenge';
+import { STORE_URL } from '../game/links';
 import { getFriendChallengeScore, saveFriendChallengeScore } from '../state/app';
 import { formatTime } from '../state/clock';
 import { OwnChallengeScoreError } from '../storage/repository';
@@ -75,6 +76,7 @@ export function ChallengeResults({ score }: { score: ChallengeScore }) {
       `${title}\nI solved the puzzle in ${formatChallengeTime(score.timeMs)}.`,
       shareData.code,
       'Paste this result code into Sudoku Studio to compare times.',
+      `Get Sudoku Studio: ${STORE_URL}`,
     ].join('\n\n');
     try {
       await Share.share({ title, message }, { dialogTitle: title, subject: title });

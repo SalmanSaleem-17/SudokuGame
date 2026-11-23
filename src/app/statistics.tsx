@@ -5,8 +5,9 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-nat
 
 import { ENABLED_DIFFICULTIES } from '../data/pool';
 import { DIFFICULTY_NAMES, type Difficulty } from '../engine/grader';
-import { dateKeyOf } from '../game/daily';
-import { PLAY_BOARD_SIZES } from '../game/playFormat';
+import { PLAY_BOARD_SIZES, isMiniResult } from '../game/playFormat';
+import { playerLevel } from '../game/rewards';
+import { currentStreak } from '../game/streak';
 import { appStore } from '../state/app';
 import { formatTime } from '../state/clock';
 import { useStore } from '../state/store';
@@ -16,19 +17,6 @@ import { useAppActive } from '../ui/hooks';
 import { colors, gradients, radius, spacing, type } from '../ui/theme';
 import { useCompletionHistory } from '../ui/useCompletionHistory';
 
-function dailyStreak(dates: readonly string[], today: Date): number {
-  const completed = new Set(dates);
-  const day = new Date(today);
-  if (!completed.has(dateKeyOf(day))) day.setDate(day.getDate() - 1);
-
-  let streak = 0;
-  while (completed.has(dateKeyOf(day))) {
-    streak++;
-    day.setDate(day.getDate() - 1);
-  }
-  return streak;
-}
-
 interface DifficultySummary {
   solved: number;
   bestMs: number;
@@ -37,7 +25,7 @@ interface DifficultySummary {
 function summarizeByDifficulty(completions: readonly Completion[]) {
   const results = new Map<string, DifficultySummary>();
   for (const completion of completions) {
-    const size = completion.slot === 'mini' ? PLAY_BOARD_SIZES[completion.difficulty] : 9;
+    const size = isMiniResult(completion) ? PLAY_BOARD_SIZES[completion.difficulty] : 9;
     const key = `${completion.difficulty}:${size}`;
     const previous = results.get(key);
     results.set(key, {
@@ -53,7 +41,8 @@ const FULL_SIZE_LEVELS: Difficulty[] = ['easy', 'medium'];
 
 export default function StatisticsScreen() {
   const router = useRouter();
-  const completedDays = useStore(appStore, (state) => state.dailyCompleted);
+  const streakDays = useStore(appStore, (state) => state.streakDays);
+  const rank = playerLevel(useStore(appStore, (state) => state.xp));
   const completions = useCompletionHistory();
   useAppActive();
 
@@ -62,7 +51,7 @@ export default function StatisticsScreen() {
     ...PLAY_FORMATS,
     ...FULL_SIZE_LEVELS.filter((difficulty) => summary.has(`${difficulty}:9`)).map((difficulty) => ({ difficulty, size: 9 })),
   ];
-  const streak = dailyStreak(completedDays, new Date());
+  const streak = currentStreak(streakDays, new Date());
 
   return (
     <Screen title="Statistics">
@@ -77,6 +66,21 @@ export default function StatisticsScreen() {
               <Stat icon="trophy-outline" label="Puzzles solved" value={String(completions.length)} gold />
               <Stat icon="flame-outline" label="Daily streak" value={`${streak} ${streak === 1 ? 'day' : 'days'}`} />
             </View>
+
+            <Card style={styles.rank}>
+              <View style={styles.rankHeading} accessible accessibilityLabel={`Player level ${rank.level}. ${rank.xp} of ${rank.next} experience.`}>
+                <View style={[styles.statIcon, styles.statIconGold, styles.rankIcon]}>
+                  <Ionicons name="ribbon-outline" size={23} color={colors.accent} />
+                </View>
+                <View style={styles.rowTitle}>
+                  <Text style={type.heading}>Player level {rank.level}</Text>
+                  <Text style={type.dim}>{rank.xp} / {rank.next} XP · each new level pays 1 hint credit</Text>
+                </View>
+              </View>
+              <View style={styles.rankTrack}>
+                <View style={[styles.rankFill, { width: `${Math.round(rank.progress * 100)}%` }]} />
+              </View>
+            </Card>
 
             <Button label="Mistake Review" detail="Revisit mistakes from past games" icon="search-outline"
               trailingIcon="chevron-forward" onPress={() => router.push('/mistake-review')} />
@@ -137,6 +141,11 @@ const styles = StyleSheet.create({
   },
   statIconGold: { backgroundColor: colors.accentSoft },
   number: { ...type.title, fontSize: 25, lineHeight: 31, fontVariant: ['tabular-nums'] },
+  rank: { padding: spacing.md, gap: spacing.md, backgroundImage: gradients.panel },
+  rankHeading: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  rankIcon: { marginBottom: 0 },
+  rankTrack: { height: 6, borderRadius: 3, backgroundColor: colors.bg, overflow: 'hidden' },
+  rankFill: { height: '100%', borderRadius: 3, backgroundColor: colors.accent },
   breakdown: { padding: spacing.lg },
   heading: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
   row: {

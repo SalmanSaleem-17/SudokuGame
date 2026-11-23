@@ -65,7 +65,7 @@ describe('bundled pool', () => {
     for (const p of POOL) {
       const t = gradePuzzle(parseGrid(p.givens)).techniques;
       const advanced = (t.lockedCandidates ?? 0) + (t.nakedPair ?? 0) + (t.hiddenPair ?? 0);
-      const expert = (t.nakedTriple ?? 0) + (t.xWing ?? 0);
+      const expert = (t.nakedTriple ?? 0) + (t.xWing ?? 0) + (t.hiddenTriple ?? 0) + (t.swordfish ?? 0) + (t.xyWing ?? 0);
       if (p.difficulty === 'easy') expect([t.nakedSingle, advanced, expert]).toEqual([undefined, 0, 0]);
       if (p.difficulty === 'medium') expect(advanced + expert).toBe(0);
       if (p.difficulty === 'hard') expect([advanced > 0, expert]).toEqual([true, 0]);

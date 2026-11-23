@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { syncReminder } from '../platform/reminders';
 import { appStore, initApp } from '../state/app';
 import { useStore } from '../state/store';
 import { StartupSplash } from '../ui/StartupSplash';
@@ -30,7 +31,11 @@ export default function RootLayout() {
 
   useEffect(() => {
     // Local data only. Consent and ads start afterwards, in the background.
-    void initApp();
+    void initApp().then(() => {
+      // Re-create the daily reminder after an app update or a device restart.
+      const { reminder, reminderHour } = appStore.getState().settings;
+      if (reminder) void syncReminder(true, reminderHour);
+    });
   }, []);
 
   return (

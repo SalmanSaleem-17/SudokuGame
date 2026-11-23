@@ -9,6 +9,7 @@ import {
   encodeChallengeScore,
   type ChallengeScore,
 } from '../src/game/challenge';
+import { STORE_URL } from '../src/game/links';
 import type { SessionRules } from '../src/game/session';
 
 const puzzle = PUZZLES[0];
@@ -54,6 +55,16 @@ describe('challenge invitations', () => {
     const text = `\nTry my Sudoku Studio puzzle!\nCode: \`${sample.challengeCode.toLowerCase().replaceAll('-', '\u2011')}\`\n`;
     expect(decodeChallenge(text).code).toBe(sample.challengeCode);
     expect(decodeChallenge(` ${sample.challengeCode} `).code).toBe(sample.challengeCode);
+  });
+
+  it('still reads a code from a share message that ends with the Google Play link', () => {
+    const link = `Get Sudoku Studio: ${STORE_URL}`;
+    expect(STORE_URL).toBe('https://play.google.com/store/apps/details?id=com.sudoku.studio');
+    expect(decodeChallenge(`Try my Sudoku Studio challenge\n\n${sample.challengeCode}\n\nOpen Challenge a Friend in Sudoku Studio and paste this message.\n\n${link}`).code)
+      .toBe(sample.challengeCode);
+    const result = encodeChallengeScore(sample);
+    expect(decodeChallengeScore(`Sudoku Studio challenge result\n\n${result}\n\nPaste this result code into Sudoku Studio to compare times.\n\n${link}`))
+      .toEqual(decodeChallengeScore(result));
   });
 
   it('rejects a different puzzle under the same catalog ID', () => {

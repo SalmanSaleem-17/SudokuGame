@@ -8,3 +8,8 @@ export function miniModeForDifficulty(difficulty: Difficulty): MiniMode | null {
   if (difficulty === 'easy') return 'mini-4';
   return difficulty === 'medium' ? 'mini-6' : null;
 }
+
+/** True for a finished game played on a 4×4 or 6×6 board: Play Now minis and Easy or Medium levels. */
+export function isMiniResult(result: { slot: string; difficulty: Difficulty }): boolean {
+  return result.slot === 'mini' || (result.slot === 'level' && miniModeForDifficulty(result.difficulty) !== null);
+}

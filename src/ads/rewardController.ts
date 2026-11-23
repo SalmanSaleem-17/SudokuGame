@@ -28,6 +28,14 @@ export interface RewardLedger {
   grant(grantId: string, credits: number): Promise<{ granted: boolean; balance: number }>;
 }
 
+/** One ad's reward. Without it the ad pays the standard hint credits. */
+export interface AdReward {
+  /** Applies the reward for this ad attempt. Must be idempotent per grantId. */
+  grant: (grantId: string) => Promise<{ granted: boolean; balance: number }>;
+  /** Credits reported in the outcome; 0 when the reward is something else. */
+  credits: number;
+}
+
 export interface RewardControllerOptions {
   provider: RewardedAdProvider;
   ledger: RewardLedger;
@@ -84,7 +92,7 @@ export class RewardController {
    * Shows one rewarded ad. Call only from an explicit player opt-in. While an attempt is
    * loading or showing, further calls return `busy` without starting anything.
    */
-  watchAd(): Promise<RewardOutcome> {
+  watchAd(reward?: AdReward): Promise<RewardOutcome> {
     if (this.current || this.state.phase !== 'idle') return Promise.resolve({ kind: 'busy' });
 
     const providerState = this.options.provider.getState();
@@ -126,7 +134,7 @@ export class RewardController {
       const earnedOutcome = async (): Promise<RewardOutcome> => {
         const result = await attempt.grant;
         return result
-          ? { kind: 'earned', credits: CREDITS_PER_REWARD, balance: result.balance }
+          ? { kind: 'earned', credits: reward?.credits ?? CREDITS_PER_REWARD, balance: result.balance }
           : { kind: 'failed', reason: 'grant-error' };
       };
 
@@ -146,8 +154,7 @@ export class RewardController {
         onEarned: () => {
           // One grant per attempt, however many times the SDK repeats the event.
           if (attempt.grant) return;
-          attempt.grant = this.options.ledger
-            .grant(attempt.id, CREDITS_PER_REWARD)
+          attempt.grant = (reward ? reward.grant(attempt.id) : this.options.ledger.grant(attempt.id, CREDITS_PER_REWARD))
             .then((result) => {
               this.options.onBalance(result.balance);
               return result;

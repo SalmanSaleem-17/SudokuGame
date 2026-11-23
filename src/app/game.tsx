@@ -12,22 +12,27 @@ import {
   SessionSlot,
   digitCounts,
   enterDigit,
+  TINT_COUNT,
   eraseCell,
+  fillNotes,
+  getMistakeLimit,
   getSessionFailure,
   getSessionRules,
   getTimeLimitMs,
   incorrectCells,
   isGiven,
   redoMove,
+  setTint,
   toggleNote,
   undoMove,
 } from '../game/session';
-import { appStore, clock, completeSession, flushSession, mutateSession, quitSession } from '../state/app';
+import { appStore, canContinueLevel, clock, completeSession, flushSession, mutateSession, quitSession, startLevel } from '../state/app';
 import { useStore } from '../state/store';
-import { Board } from '../ui/Board';
+import { Board, TINT_COLORS } from '../ui/Board';
 import { BrandTitle } from '../ui/Brand';
 import { HintPanel } from '../ui/HintPanel';
 import { Keypad } from '../ui/Keypad';
+import { LevelFailure } from '../ui/LevelFailure';
 import { Motion } from '../ui/Motion';
 import { TechniqueGuide } from '../ui/TechniqueGuide';
 import { confirmQuitGame } from '../ui/confirmQuitGame';
@@ -44,11 +49,12 @@ const MODE_HUBS = {
   challenge: { path: '/challenge', label: 'Challenges' },
   weekly: { path: '/weekly', label: 'Weekly challenge' },
   technique: { path: '/practice/packs', label: 'Technique packs' },
+  level: { path: '/levels', label: 'Levels' },
 } as const satisfies Record<SessionSlot, { path: string; label: string }>;
 
 export default function GameScreen() {
   const params = useLocalSearchParams<{ slot?: string; source?: string }>();
-  const slot: SessionSlot = params.slot === 'daily' || params.slot === 'challenge' || params.slot === 'technique' || params.slot === 'weekly'
+  const slot: SessionSlot = params.slot === 'daily' || params.slot === 'challenge' || params.slot === 'technique' || params.slot === 'weekly' || params.slot === 'level'
     ? params.slot : 'classic';
   const { path: modeHome, label: modeLabel } = slot === 'classic' && params.source === 'saved-games'
     ? { path: '/saved-games' as const, label: 'Saved Games' }
@@ -81,7 +87,7 @@ export default function GameScreen() {
   const failure = session ? getSessionFailure(session) : null;
   const timeLimitMs = session ? getTimeLimitMs(session) : null;
   const mistakeRule = session ? getSessionRules(session).mistakes : 'off';
-  const mistakeLimit = typeof mistakeRule === 'number' ? mistakeRule : null;
+  const mistakeLimit = session ? getMistakeLimit(session) : null;
   const mistakeFeedback = mistakeLimit !== null || (mistakeRule !== 'off' && settings.mistakeFeedback);
   const showHint = hintOpen && !paused && !failure;
   const boardSize = useBoardSize(CHROME_HEIGHT, 12);
@@ -204,6 +210,14 @@ export default function GameScreen() {
 
   const onToggleNotes = useCallback(() => setNotesMode((n) => !n), []);
 
+  const onFillNotes = useCallback(() => {
+    mutateSession(slot, fillNotes);
+  }, [slot]);
+
+  const onTint = useCallback((tint: number) => {
+    if (selected !== null) mutateSession(slot, (s) => setTint(s, selected, tint));
+  }, [selected, slot]);
+
   const openHint = useCallback(() => {
     scrollPosition.current.beforeHint = scrollPosition.current.offset;
     pendingScroll.current = 'hint';
@@ -321,6 +335,7 @@ export default function GameScreen() {
       ? `Daily · ${parseDateKey(session.dateKey).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`
       : slot === 'challenge' ? 'Challenge'
         : slot === 'weekly' ? 'Weekly Challenge'
+          : slot === 'level' && session.level ? `Level ${session.level.number}`
           : session.techniquePack ? TECHNIQUE_PACKS[session.techniquePack].title : 'Sudoku';
   const highlightDigit =
     settings.numberFirst && armedDigit !== 0 ? armedDigit : selected !== null ? session.values[selected] : 0;
@@ -400,6 +415,16 @@ export default function GameScreen() {
             <Text style={styles.overlayHeading} accessibilityRole="header">
               {failure === 'time' ? 'Time’s up' : 'Mistake limit reached'}
             </Text>
+            {slot === 'level' ? (
+              <LevelFailure
+                sessionId={session.id}
+                byMistakes={failure === 'mistakes'}
+                extraMistakes={session.level?.extraMistakes ?? 0}
+                canContinue={canContinueLevel(session)}
+                onRetry={() => { if (session.level) startLevel(session.difficulty, session.level.number); }}
+                onLevels={() => router.dismissTo({ pathname: '/levels', params: { difficulty: session.difficulty } })}
+              />
+            ) : (
             <Button
               label={slot === 'classic' || slot === 'daily' ? 'New Game' : modeLabel}
               variant="primary"
@@ -411,6 +436,7 @@ export default function GameScreen() {
               }}
               style={styles.resume}
             />
+            )}
             {!!session.mistakeReview?.length && (
               <Button
                 label="Review mistakes"
@@ -442,6 +468,7 @@ export default function GameScreen() {
                 highlightDigit={showHint ? 0 : highlightDigit}
                 errors={errors}
                 marks={overlay.marks}
+                tints={session.tints}
                 onCellPress={onCellPress}
                 disabled={showHint}
               />
@@ -499,6 +526,36 @@ export default function GameScreen() {
                     disabled={paused}
                   />
                 </View>
+                {notesMode && !paused && (
+                  <View style={styles.noteBar}>
+                    <Pressable
+                      onPress={onFillNotes}
+                      accessibilityRole="button"
+                      accessibilityLabel="Fill notes"
+                      accessibilityHint="Writes every possible digit into each empty cell. Undo reverses it."
+                      style={({ pressed }) => [styles.noteAction, gameControlSurfaces.tool, pressed && gameControlSurfaces.toolPressed]}>
+                      <Ionicons name="grid-outline" size={17} color={colors.accent} />
+                      <Text style={styles.noteActionLabel} maxFontSizeMultiplier={1.4} numberOfLines={1}>Fill notes</Text>
+                    </Pressable>
+                    <View style={styles.tintRow} accessibilityRole="radiogroup" accessibilityLabel="Colour mark for the selected cell">
+                      {Array.from({ length: TINT_COUNT }, (_, index) => index + 1).map((tint) => {
+                        const active = selected !== null && (session.tints?.[selected] ?? 0) === tint;
+                        return (
+                          <Pressable
+                            key={tint}
+                            onPress={() => onTint(active ? 0 : tint)}
+                            disabled={selected === null}
+                            accessibilityRole="radio"
+                            accessibilityLabel={`Colour mark ${tint}`}
+                            accessibilityState={{ checked: active, disabled: selected === null }}
+                            style={[styles.tint, selected === null && styles.tintQuiet]}>
+                            <View style={[styles.tintDot, { backgroundColor: TINT_COLORS[tint - 1] }, active && styles.tintDotActive]} />
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                )}
                 <Keypad
                   grid
                   counts={counts}
@@ -669,6 +726,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  noteBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  noteAction: {
+    minHeight: TOUCH - 4, flexDirection: 'row', alignItems: 'center', gap: spacing.xs,
+    paddingHorizontal: spacing.md, borderRadius: 11, borderWidth: 1,
+  },
+  noteActionLabel: { fontSize: 13, fontWeight: '800', color: colors.text },
+  tintRow: { flexDirection: 'row', alignItems: 'center' },
+  tint: { width: TOUCH - 4, height: TOUCH - 4, alignItems: 'center', justifyContent: 'center' },
+  tintQuiet: { opacity: 0.4 },
+  tintDot: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: colors.bg },
+  tintDotActive: { borderColor: colors.text },
   activePressed: { opacity: 0.85 },
   toolLabel: { fontSize: 11, fontWeight: '800', textAlign: 'center', includeFontPadding: false },
   toolBadge: { maxWidth: '100%', paddingHorizontal: spacing.xs, paddingVertical: 1, borderRadius: 6, backgroundColor: '#231A10' },

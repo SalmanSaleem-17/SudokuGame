@@ -9,9 +9,11 @@ import type { DrillTechnique, PuzzleRecord } from '../engine/pool';
 import { parseDateKey } from '../game/daily';
 import { DRILL_INFO } from '../game/drills';
 import { TECHNIQUE_PACKS } from '../game/learning';
-import { PLAY_BOARD_SIZES } from '../game/playFormat';
-import { getCompletion } from '../state/app';
+import { LEVEL_COUNT } from '../game/levels';
+import { PLAY_BOARD_SIZES, isMiniResult } from '../game/playFormat';
+import { appStore, getCompletion, openLevel } from '../state/app';
 import { formatTime } from '../state/clock';
+import { useStore } from '../state/store';
 import type { Completion } from '../storage/repository';
 import { ChallengeResults, formatChallengeTime } from '../ui/ChallengeResults';
 import { Button, Card, type IconName, Screen } from '../ui/controls';
@@ -36,6 +38,7 @@ export default function ResultsScreen() {
   const router = useRouter();
   const reducedMotion = useReducedMotion();
   const [completion, setCompletion] = useState<Completion | null | undefined>(undefined);
+  const lastRewards = useStore(appStore, (s) => s.lastRewards);
 
   useEffect(() => {
     let live = true;
@@ -66,7 +69,11 @@ export default function ResultsScreen() {
   const lesson = pack ? null : lessonFor(puzzle);
   const isDaily = completion.slot === 'daily' && completion.dateKey;
   const isWeekly = completion.slot === 'weekly';
-  const isMini = completion.slot === 'mini';
+  const isMini = isMiniResult(completion);
+  const level = completion.slot === 'level' ? completion.level ?? null : null;
+  const stars = completion.stars ?? 0;
+  const rewards = lastRewards?.sessionId === completion.sessionId ? lastRewards : null;
+  const credits = rewards?.grants.reduce((sum, grant) => sum + grant.credits, 0) ?? 0;
   const size = PLAY_BOARD_SIZES[completion.difficulty];
   const reviewCount = completion.mistakeReview?.length ?? 0;
   const challengeScore = completion.challengeCode ? {
@@ -78,6 +85,7 @@ export default function ResultsScreen() {
   } : null;
   const subtitle = isDaily
     ? `Daily puzzle · ${parseDateKey(completion.dateKey!).toLocaleDateString(undefined, { day: 'numeric', month: 'long' })}`
+    : level !== null ? `Level ${level} · ${DIFFICULTY_NAMES[completion.difficulty]}${isMini ? ` · ${size} × ${size}` : ''}`
     : pack ? `${TECHNIQUE_PACKS[pack].title} practice`
       : isWeekly ? `Weekly challenge · ${DIFFICULTY_NAMES[completion.difficulty]}`
         : isMini ? `${DIFFICULTY_NAMES[completion.difficulty]} · ${size} × ${size}`
@@ -97,9 +105,17 @@ export default function ResultsScreen() {
             </Motion>
           </View>
           <Text style={styles.title} accessibilityRole="header">
-            {challengeScore ? 'Challenge complete' : 'Puzzle solved'}
+            {challengeScore ? 'Challenge complete' : level !== null ? 'Level cleared' : 'Puzzle solved'}
           </Text>
           <Text style={type.dim}>{subtitle}</Text>
+          {level !== null && (
+            <View style={styles.stars} accessible accessibilityLabel={`${stars} of 3 stars`}>
+              {[1, 2, 3].map((star) => (
+                <Ionicons key={star} name={star <= stars ? 'star' : 'star-outline'} size={30}
+                  color={star <= stars ? colors.accent : colors.lineStrong} />
+              ))}
+            </View>
+          )}
         </Motion>
 
         <Card style={styles.stats}>
@@ -118,6 +134,24 @@ export default function ResultsScreen() {
             </>
           )}
         </Card>
+
+        {rewards && (
+          <Card style={styles.rewards}>
+            <View style={styles.lessonLabel}>
+              <Ionicons name="gift-outline" size={17} color={colors.accent} />
+              <Text style={styles.lessonEyebrow}>REWARDS</Text>
+              <Text style={styles.rewardXp}>+{rewards.xp} XP</Text>
+            </View>
+            {rewards.grants.map((grant) => (
+              <View key={grant.id} style={styles.rewardRow} accessible accessibilityLabel={`${grant.label}, ${grant.credits} hint ${grant.credits === 1 ? 'credit' : 'credits'}`}>
+                <Text style={[type.body, styles.rewardLabel]}>{grant.label}</Text>
+                <Text style={styles.rewardCredits}>+{grant.credits}</Text>
+                <Ionicons name="bulb" size={15} color={colors.accent} />
+              </View>
+            ))}
+            {credits > 0 && <Text style={type.dim}>{credits} hint {credits === 1 ? 'credit' : 'credits'} added.</Text>}
+          </Card>
+        )}
 
         {challengeScore && <ChallengeResults key={challengeScore.sessionId} score={challengeScore} />}
 
@@ -150,7 +184,22 @@ export default function ResultsScreen() {
         )}
 
         <View style={styles.actions}>
-          {isDaily ? (
+          {level !== null ? (
+            <>
+              {level < LEVEL_COUNT && (
+                <Button
+                  label="Next level"
+                  variant="primary"
+                  icon="play"
+                  onPress={() => {
+                    void openLevel(completion.difficulty, level + 1).then((route) => { if (route) router.replace(route); }, () => undefined);
+                  }}
+                />
+              )}
+              <Button label="Levels" variant={level < LEVEL_COUNT ? 'secondary' : 'primary'} icon="list-outline"
+                onPress={() => router.dismissTo({ pathname: '/levels', params: { difficulty: completion.difficulty } })} />
+            </>
+          ) : isDaily ? (
             <Button label="Daily calendar" variant="primary" icon="calendar-outline" onPress={() => router.replace('/daily')} />
           ) : challengeScore ? (
             <Button label="Challenge a Friend" variant="primary" icon="people-outline" onPress={() => router.dismissTo('/challenge')} />
@@ -209,6 +258,12 @@ const styles = StyleSheet.create({
   preciseValue: { fontSize: 17 },
   statLabel: { ...type.dim, textAlign: 'center' },
   divider: { width: 1, backgroundColor: colors.line },
+  stars: { flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs },
+  rewards: { padding: spacing.lg, gap: spacing.sm, borderColor: colors.accentEdge, backgroundImage: gradients.panel },
+  rewardXp: { ...type.label, color: colors.accent },
+  rewardRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  rewardLabel: { flex: 1 },
+  rewardCredits: { fontSize: 16, fontWeight: '800', color: colors.accent, fontVariant: ['tabular-nums'] },
   lesson: { padding: spacing.lg, gap: spacing.sm },
   lessonLabel: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   lessonEyebrow: { ...type.label, flex: 1 },

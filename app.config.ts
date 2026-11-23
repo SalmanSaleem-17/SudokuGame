@@ -118,6 +118,8 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     plugins: [
       'expo-router',
       'expo-sqlite',
+      // Local Daily Puzzle reminder only; no push notifications are used.
+      ['expo-notifications', { color: '#FFC64A' }],
       ['expo-build-properties', { android: { extraProguardRules: ANDROID_STARTUP_KEEP_RULES } }],
       [
         'expo-splash-screen',

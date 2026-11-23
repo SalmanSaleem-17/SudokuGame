@@ -2,14 +2,14 @@
  * Puzzle session state and the pure operations on it. No storage or UI code here.
  */
 import type { Difficulty } from '../engine/grader';
-import { PEERS, bit, parseGrid } from '../engine/grid';
+import { PEERS, bit, computeCandidates, parseGrid } from '../engine/grid';
 import type { HintResult } from '../engine/hints';
 import type { PuzzleRecord } from '../engine/pool';
 import type { Challenge } from './challenge';
 import { isWeeklyDifficulty, isWeeklyWeekKey } from './events';
 import { MAX_MISTAKE_REVIEW, isMistakeReview, isTechniquePackId, recordMistake, type MistakeAttempt, type TechniquePackId } from './learning';
 
-export const SESSION_SLOTS = ['classic', 'daily', 'challenge', 'technique', 'weekly'] as const;
+export const SESSION_SLOTS = ['classic', 'daily', 'challenge', 'technique', 'weekly', 'level'] as const;
 export type SessionSlot = (typeof SESSION_SLOTS)[number];
 
 export const SESSION_VERSION = 1;
@@ -27,6 +27,18 @@ export function isSessionRules(value: unknown): value is SessionRules {
   const rules = value as SessionRules | null;
   return !!rules && [0, 5, 10, 15].includes(rules.timerMinutes) && ['off', 3, 5, 'unlimited'].includes(rules.mistakes);
 }
+
+/** The rules of one Levels stage, copied into the session when it starts. */
+export interface SessionLevel {
+  number: number;
+  timeLimitSec: number;
+  mistakeLimit: number;
+  /** Extra mistakes earned from optional ads during this attempt. */
+  extraMistakes: number;
+}
+
+/** How many colours a player can mark a cell with; 0 means unmarked. */
+export const TINT_COUNT = 3;
 
 type CellState = [cell: number, value: number, notes: number];
 
@@ -62,6 +74,10 @@ export interface Session {
   /** Older saves have no redo history or custom rules. */
   redo?: UndoEntry[];
   rules?: SessionRules;
+  /** Present only for the Levels mode. */
+  level?: SessionLevel;
+  /** Player colour marks per cell (0 to TINT_COUNT). Absent until the first mark. */
+  tints?: number[];
   /** Active play time in milliseconds; excludes paused, backgrounded and ad time. */
   elapsedMs: number;
   mistakes: number;
@@ -112,6 +128,10 @@ export function createChallengeSession(challenge: Challenge, id: string, now: nu
   };
 }
 
+export function createLevelSession(puzzle: PuzzleRecord, level: Omit<SessionLevel, 'extraMistakes'>, id: string, now: number): Session {
+  return { ...createSession(puzzle, 'level', id, now), level: { ...level, extraMistakes: 0 } };
+}
+
 export function createTechniqueSession(puzzle: PuzzleRecord, techniquePack: TechniquePackId, id: string, now: number): Session {
   return { ...createSession(puzzle, 'technique', id, now), techniquePack };
 }
@@ -122,15 +142,23 @@ export function getSessionRules(session: Session): Readonly<SessionRules> {
     : DEFAULT_SESSION_RULES;
 }
 
+/** The number of mistakes that ends the game, or null when mistakes never end it. */
+export function getMistakeLimit(session: Session): number | null {
+  if (session.slot === 'level' && session.level) return session.level.mistakeLimit + session.level.extraMistakes;
+  const { mistakes } = getSessionRules(session);
+  return typeof mistakes === 'number' ? mistakes : null;
+}
+
 export function getTimeLimitMs(session: Session): number | null {
+  if (session.slot === 'level' && session.level) return session.level.timeLimitSec > 0 ? session.level.timeLimitSec * 1000 : null;
   const { timerMinutes } = getSessionRules(session);
   return timerMinutes === 0 ? null : timerMinutes * 60_000;
 }
 
 export function getSessionFailure(session: Session): SessionFailure | null {
   if (session.completed) return null;
-  const { mistakes } = getSessionRules(session);
-  if (typeof mistakes === 'number' && session.mistakes >= mistakes) return 'mistakes';
+  const mistakeLimit = getMistakeLimit(session);
+  if (mistakeLimit !== null && session.mistakes >= mistakeLimit) return 'mistakes';
   const timeLimitMs = getTimeLimitMs(session);
   return timeLimitMs !== null && session.elapsedMs >= timeLimitMs ? 'time' : null;
 }
@@ -197,6 +225,26 @@ export function eraseCell(session: Session, cell: number): Session {
   return commit(session, [[cell, 0, 0]]);
 }
 
+/** Fills every empty cell's notes with the digits its row, column and box still allow. */
+export function fillNotes(session: Session): Session {
+  if (isFinished(session)) return session;
+  const candidates = computeCandidates(session.values);
+  const changes: CellState[] = [];
+  for (let cell = 0; cell < 81; cell++) {
+    if (session.values[cell] === 0) changes.push([cell, 0, candidates[cell]]);
+  }
+  return commit(session, changes);
+}
+
+/** Marks a cell with a colour, or clears the mark with 0. Marks are not part of undo. */
+export function setTint(session: Session, cell: number, tint: number): Session {
+  if (isFinished(session) || !Number.isInteger(tint) || tint < 0 || tint > TINT_COUNT) return session;
+  if ((session.tints?.[cell] ?? 0) === tint) return session;
+  const tints = session.tints?.slice() ?? new Array<number>(81).fill(0);
+  tints[cell] = tint;
+  return { ...session, tints };
+}
+
 /** Reverts the latest action, restoring every cell and note it touched. */
 export function undoMove(session: Session): Session {
   const entry = session.undo[session.undo.length - 1];
@@ -242,6 +290,12 @@ export function digitCounts(values: readonly number[]): number[] {
   return counts;
 }
 
+export function isSessionLevel(value: unknown): value is SessionLevel {
+  const level = value as SessionLevel | null;
+  const whole = (n: unknown, min: number) => typeof n === 'number' && Number.isInteger(n) && n >= min;
+  return !!level && whole(level.number, 1) && whole(level.timeLimitSec, 0) && whole(level.mistakeLimit, 1) && whole(level.extraMistakes, 0);
+}
+
 /** Guards against loading a corrupt or incompatible saved session. */
 export function isValidSession(value: unknown): value is Session {
   const s = value as Session | null;
@@ -260,6 +314,8 @@ export function isValidSession(value: unknown): value is Session {
       s.dateKey === null && typeof s.challengeCode === 'string' && s.challengeCode.length > 0 && s.rules !== undefined
     )) &&
     (s.slot !== 'technique' || (s.dateKey === null && isTechniquePackId(s.techniquePack))) &&
+    (s.slot !== 'level' || isSessionLevel(s.level)) &&
+    (s.tints === undefined || (grid(s.tints) && s.tints.every((tint) => tint >= 0 && tint <= TINT_COUNT))) &&
     (s.slot !== 'weekly' || (typeof s.dateKey === 'string' && isWeeklyWeekKey(s.dateKey) && isWeeklyDifficulty(s.difficulty))) &&
     grid(s.givens) &&
     grid(s.solution) &&

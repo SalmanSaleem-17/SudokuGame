@@ -11,7 +11,8 @@ const LESSONS = [
   { title: 'Check the row', body: 'Read across. This row already has 1, 3, and 4, so the empty cell must be 2.', mark: [0, 1, 2, 3], target: 1, answer: 2, caption: 'Each digit appears once across a row.' },
   { title: 'Check the column', body: 'Read down. The third column has 3, 4, and 2. Its missing digit is 1.', mark: [2, 6, 10, 14], target: 6, answer: 1, clue: [14, 2], caption: 'Each digit appears once down a column.' },
   { title: 'Check the box', body: 'Thicker lines divide the board into boxes. The lower-left box is missing 1, so it belongs in the highlighted cell.', mark: [8, 9, 12, 13], target: 9, answer: 1, caption: 'Each digit appears once inside a box.' },
-  { title: 'Tap, take notes, or ask for help', body: 'Tap a cell, then a digit. Turn on Notes to jot down possibilities. Use Undo to reverse a move or Hint in Classic to see the next step.', mark: [14], target: 14, caption: 'Small digits are notes you can change.' },
+  { title: 'Tap, take notes, or ask for help', body: 'Tap a cell, then a digit. Turn on Notes to jot down possibilities. On 9×9 boards, Notes can also fill in every possibility at once and mark cells with a colour. Use Undo to reverse a move or Hint on a 9×9 board to see the next step.', mark: [14], target: 14, caption: 'Small digits are notes you can change.' },
+  { title: 'Climb the levels', body: 'Levels give every puzzle a time limit and a mistake limit. Easy levels use 4×4 boards, Medium 6×6, and Hard and Expert 9×9. Solve faster to earn up to 3 stars, and clear a level to unlock the next.', mark: [0, 5, 10, 15], caption: 'Open Levels from the home screen.' },
 ] as const;
 
 const EXAMPLE = [1, 0, 3, 4, 3, 4, 0, 2, 2, 0, 4, 3, 4, 3, 0, 1];

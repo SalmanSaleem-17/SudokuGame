@@ -1,7 +1,12 @@
 # Sudoku Studio
 
-Offline-first classic 9×9 Sudoku for Android, built with Expo SDK 58, React Native 0.88 and TypeScript.
+Offline-first Sudoku for Android, built with Expo SDK 58, React Native 0.88 and TypeScript.
 No accounts, no backend. The only feature that uses the network is the optional rewarded ad.
+
+Ways to play: Play Now (4×4, 6×6 and 9×9), Levels (30 stages per difficulty: Easy on 4×4, Medium on 6×6, Hard and
+Expert on 9×9, each with a time limit, a mistake limit and time-based stars),
+Daily Puzzle, Weekly Challenge, Speed Round, Challenge a Friend, variants, technique packs, practice drills,
+and puzzles the player types in.
 
 ## Run it
 
@@ -29,25 +34,31 @@ npm run typecheck
 npm run lint
 npm test
 npm run validate:puzzles  # build-time pool validation; exits non-zero on any bad puzzle
-npm run generate:puzzles  # regenerates src/data/*.json (deterministic, about 4 minutes)
+npm run generate:puzzles  # adds puzzles to src/data/puzzles.json up to the targets in the script; never changes existing ids
 ```
 
-Last run: typecheck clean, lint clean, **73 of 73 tests passed**, puzzle validation passed,
+Last run: typecheck clean, lint clean, **181 of 181 tests passed**, puzzle validation passed,
 `expo-doctor` 20 of 20, Android JS bundle exports, and `expo prebuild` writes the AdMob app ID into the manifest.
 
 ### Verified puzzles
 
 | Difficulty | Puzzles | Solution path needs |
 | --- | --- | --- |
-| Easy | 40 | hidden singles only, 32+ givens |
-| Medium | 40 | naked and hidden singles |
-| Hard | 40 | locked candidates and/or naked or hidden pairs |
-| Expert | 20 | naked triples and/or X-Wings |
+| Easy | 150 | hidden singles only, 32+ givens |
+| Medium | 150 | naked and hidden singles |
+| Hard | 150 | locked candidates and/or naked or hidden pairs |
+| Expert | 100 | naked or hidden triples, X-Wings, Swordfish and/or XY-Wings |
 
 Every puzzle is checked for valid givens and exactly one solution by a brute-force solver that shares no
 code with the technique engine, then re-graded by replaying its logical solution path. Practice has 12
 drills each for naked singles, hidden singles and locked candidates. The Daily Puzzle rotates through the
-120 Easy, Medium and Hard puzzles.
+450 Easy, Medium and Hard puzzles. Hard and Expert levels use a fixed set of 30 puzzles each, taken from the first
+80 Hard and the first 50 Expert puzzles, so growing the pool never changes a level. Easy and Medium levels use 30
+generated 4×4 and 30 generated 6×6 puzzles in `src/data/miniLevels.json` (`npm run generate:minis`).
+
+Level limits (set in `LEVEL_TIMES` and `LEVEL_MISTAKES`): Easy 2 minutes, 3 mistakes (3 stars within 0:30, 2 within 1:00);
+Medium 4 minutes, 5 mistakes (1:00 and 2:00); Hard 8 minutes, 8 mistakes (3:00 and 5:00); Expert 10 minutes, 10 mistakes
+(4:00 and 6:00). One star for finishing in time.
 
 ## What the tests cover
 
@@ -59,14 +70,19 @@ All automated, in Node, against a real SQLite database (the same SQL the app run
 - Daily determinism, midnight rollover, a puzzle staying with its start date, one completion per session and per date
 - Earned reward, early dismissal, no fill, offline, load and show failures, timeout, duplicate callbacks, reward arriving after close, rapid taps, consent ineligibility, spending a credit offline after earning it online
 - Ad configuration: test IDs by default, build failure for missing, malformed or test IDs in production
+- Levels: 30 distinct puzzles per difficulty on the right board size, each with one solution; time limits and time-based stars; unlock order; ending on mistakes or time; continuing with one extra mistake per ad
+- Rewards: experience and player levels, one-time credit rewards (daily, streak, level milestones, badges), never paid twice
+- Streaks: on-time dailies only, repair of yesterday through one ad, applied once per ad
+- Auto-filled notes, colour marks, reset (keeps credits and paid rewards) and backup export and restore (credits excluded)
 
 ### Not verified on a device
 
-This machine has no JDK and the emulator could not start (system drive full), so none of the following was run:
+No phone was connected and the emulator could not start (system drive full), so none of the following was run:
 
 - The app UI on a phone or emulator, including layout on compact screens, TalkBack labels and performance on low-end hardware
 - Google test rewarded ads and the UMP consent form in a native build
 - Timer pause and resume around a real ad, and process-death restore on a real device (covered only at the storage level)
+- The Daily Puzzle reminder notification, and saving and restoring a backup file through the system file picker
 
 Please run through these on a development build before release.
 
@@ -85,7 +101,10 @@ IDs come from environment variables, read in one place (`app.config.ts`); see `.
 - `ADS_MODE=production` (set by the `production` profile in `eas.json`) **fails the build** if an Android ID is missing, malformed, or a Google test ID.
 - For EAS builds, set the production values as EAS environment variables for the production environment rather than committing them.
 
-Reward rules, as implemented: one free hint per puzzle; one earned reward adds exactly 2 credits; 1 credit buys one hint.
+Reward rules, as implemented: one free hint per 9×9 game; one earned ad reward adds exactly 2 credits; 1 credit buys one hint.
+The same rewarded unit also powers two other opt-in offers: one extra mistake in a Levels stage (up to 2 per attempt) and
+repairing yesterday's missed daily streak. Credits are also earned by playing (daily puzzles, streaks, level milestones,
+badges and player levels), each paid once under a fixed reward id.
 Credits are granted only from the SDK's earned-reward event, recorded with a unique attempt ID in the same SQLite
 transaction as the balance change. The balance is local convenience data: it is not server-verified and is lost on uninstall.
 

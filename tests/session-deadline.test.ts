@@ -23,6 +23,9 @@ describe('startup migration', () => {
   it('opens the earlier version 3 database and recovers a pending result without losing saved data', async () => {
     const { openExpoDriver } = await import('../src/storage/expoDriver');
     const { appStore, initApp, listCompletions, getCompletion } = await import('../src/state/app');
+    // The pending daily is recorded at startup; a fixed date keeps its on-time reward deterministic.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 10, 23, 12));
     const db = createMemoryDb();
     const driver = nodeDriver(db);
     const original = await Repository.open(driver);
@@ -47,7 +50,8 @@ describe('startup migration', () => {
     await initApp();
 
     expect(appStore.getState()).toMatchObject({
-      ready: true, loadError: null, sessions: { classic: active, daily: null }, credits: 2,
+      // Two saved credits plus one for the recovered Daily Puzzle, finished on its own date.
+      ready: true, loadError: null, sessions: { classic: active, daily: null }, credits: 3,
       settings: { boardTheme: 'light' }, dailyCompleted: ['2026-11-22', '2026-11-23'],
     });
     expect(await listCompletions()).toMatchObject([
@@ -238,7 +242,7 @@ describe('friend challenge gameplay', () => {
     expect(decodeChallengeScore(share)).toEqual({
       challengeCode: invite.code, sessionId: attempt.id, timeMs: 247_300, mistakes: 0, hints: 0,
     });
-    expect(appStore.getState().sessions).toEqual({ classic, daily, challenge: null, technique: null, weekly: null });
+    expect(appStore.getState().sessions).toEqual({ classic, daily, challenge: null, technique: null, weekly: null, level: null });
     db.close();
   });
 });

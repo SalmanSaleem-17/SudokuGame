@@ -12,13 +12,14 @@ import {
 import type { AlternateProgress } from '../game/alternate';
 import { alternateConflicts } from '../game/alternateRules';
 import type { AlternateMode } from '../game/alternateRules';
-import { enterMiniClassic, miniClassicStatus, miniClassicTimeLimit, undoMiniClassic, type MiniClassicSession } from '../game/miniClassic';
+import { enterMiniClassic, miniClassicStatus, miniClassicTimeLimit, miniMistakeLimit, undoMiniClassic, type MiniClassicSession } from '../game/miniClassic';
 import { PLAY_BOARD_SIZES, type MiniMode } from '../game/playFormat';
-import { appStore, completeMiniClassic, flushMiniClassic, loadModeProgress, miniClassicClock, mutateMiniClassic, quitMiniClassic, saveModeProgress, startMiniClassic } from '../state/app';
+import { appStore, canContinueMiniLevel, completeMiniClassic, flushMiniClassic, loadModeProgress, miniClassicClock, mutateMiniClassic, quitMiniClassic, saveModeProgress, startMiniClassic, startMiniLevel } from '../state/app';
 import { formatTime } from '../state/clock';
 import { useStore } from '../state/store';
 import { AlternateBoard } from '../ui/AlternateBoard';
 import { Keypad } from '../ui/Keypad';
+import { LevelFailure } from '../ui/LevelFailure';
 import { confirmQuitGame } from '../ui/confirmQuitGame';
 import { Button, Card, IconButton, Screen } from '../ui/controls';
 import type { IconName } from '../ui/controls';
@@ -39,10 +40,11 @@ const VARIANTS: AlternateMode[] = ['diagonal', 'killer', 'irregular'];
 export default function AlternateScreen() {
   const params = useLocalSearchParams<{ mode?: string; play?: string; source?: string }>();
   const mode = isAlternateMode(params.mode) ? params.mode : null;
-  if (params.play === 'classic') {
+  if (params.play === 'classic' || params.play === 'level') {
+    const level = params.play === 'level';
     return mode === 'mini-4' || mode === 'mini-6'
-      ? <MiniClassicGame key={`classic:${mode}`} mode={mode} fromSavedGames={params.source === 'saved-games'} />
-      : <MiniClassicMissing />;
+      ? <MiniClassicGame key={`${params.play}:${mode}`} mode={mode} level={level} fromSavedGames={params.source === 'saved-games'} />
+      : <MiniClassicMissing level={level} />;
   }
   return mode
     ? <AlternateGame key={mode} mode={mode} fromPicker={params.source === 'picker'} />
@@ -223,24 +225,33 @@ function AlternateGame({ mode, fromPicker }: { mode: AlternateMode; fromPicker: 
 }
 
 function miniClassicTitle(session: MiniClassicSession): string {
+  if (session.level) return `Level ${session.level.number} · ${DIFFICULTY_NAMES[session.difficulty]}`;
   const edge = PLAY_BOARD_SIZES[session.difficulty];
   return `${DIFFICULTY_NAMES[session.difficulty]} · ${edge}×${edge}`;
 }
 
-function MiniClassicMissing() {
+function MiniClassicMissing({ level = false }: { level?: boolean }) {
   return (
-    <Screen title="Game Setup">
+    <Screen title={level ? 'Levels' : 'Game Setup'}>
       <View style={styles.missing}>
-        <Text style={type.dim}>Choose a difficulty to start a puzzle.</Text>
-        <Button label="New Game" variant="primary" onPress={() => router.replace('/new-game')} />
+        <Text style={type.dim}>{level ? 'Choose a level to play.' : 'Choose a difficulty to start a puzzle.'}</Text>
+        {level
+          ? <Button label="Levels" variant="primary" onPress={() => router.replace('/levels')} />
+          : <Button label="New Game" variant="primary" onPress={() => router.replace('/new-game')} />}
       </View>
     </Screen>
   );
 }
 
-function MiniClassicGame({ mode, fromSavedGames }: { mode: MiniMode; fromSavedGames: boolean }) {
+/** The small-board game in play: the Play Now mini, or an Easy or Medium level attempt. */
+const readMini = (level: boolean) => (level ? appStore.getState().miniLevel : appStore.getState().miniClassic);
+
+function MiniClassicGame({ mode, level, fromSavedGames }: { mode: MiniMode; level: boolean; fromSavedGames: boolean }) {
   const navigation = useNavigation();
-  const session = useStore(appStore, (state) => state.miniClassic?.mode === mode ? state.miniClassic : null);
+  const session = useStore(appStore, (state) => {
+    const saved = level ? state.miniLevel : state.miniClassic;
+    return saved?.mode === mode ? saved : null;
+  });
   const focused = useScreenFocused();
   const appActive = useAppActive();
   const [pausedId, setPausedId] = useState<string | null>(null);
@@ -261,7 +272,7 @@ function MiniClassicGame({ mode, fromSavedGames }: { mode: MiniMode; fromSavedGa
   const timeLimit = session ? miniClassicTimeLimit(session) : null;
 
   useEffect(() => {
-    const current = appStore.getState().miniClassic;
+    const current = readMini(level);
     if (!ticking || !id || current?.id !== id) return;
     miniClassicClock.load('mini', current.elapsedMs, id);
     miniClassicClock.start();
@@ -279,7 +290,7 @@ function MiniClassicGame({ mode, fromSavedGames }: { mode: MiniMode; fromSavedGa
       miniClassicClock.stop();
       flushMiniClassic(id);
     };
-  }, [id, ticking, timeLimit]);
+  }, [id, level, ticking, timeLimit]);
 
   const finish = useCallback((sessionId: string) => {
     if (saving.current) return;
@@ -304,12 +315,13 @@ function MiniClassicGame({ mode, fromSavedGames }: { mode: MiniMode; fromSavedGa
 
   const enter = useCallback((cell: number, digit: number, notesMode: boolean) => {
     if (!id || !ticking || quitPending.current) return;
-    const { miniClassic: current, settings } = appStore.getState();
+    const { settings } = appStore.getState();
+    const current = readMini(level);
     const next = mutateMiniClassic(id, (game) => enterMiniClassic(game, cell, digit, notesMode, settings.smartNotes));
     if (!next || next.progress === current?.progress) return;
     const wrong = digit > 0 && !notesMode && digit !== getAlternatePuzzle(next.mode, next.index).solution[cell];
     haptic(miniClassicStatus(next) === 'solved' ? 'success' : wrong && settings.mistakeFeedback ? 'warn' : 'tap');
-  }, [id, ticking]);
+  }, [id, level, ticking]);
 
   if (!session || !phase) {
     if (quitting) {
@@ -323,7 +335,7 @@ function MiniClassicGame({ mode, fromSavedGames }: { mode: MiniMode; fromSavedGa
       <Screen title="Puzzle solved">
         <View style={styles.loading}><ActivityIndicator color={colors.accent} accessibilityLabel="Opening result" /></View>
       </Screen>
-    ) : <MiniClassicMissing />;
+    ) : <MiniClassicMissing level={level} />;
   }
 
   const restart = () => {
@@ -331,7 +343,10 @@ function MiniClassicGame({ mode, fromSavedGames }: { mode: MiniMode; fromSavedGa
     restartPending.current = true;
     setRestarting(true);
     setRestartFailed(false);
-    void startMiniClassic(session.mode, session.rules, { replayIndex: session.index }).catch(() => {
+    const fresh = session.level
+      ? startMiniLevel(session.difficulty, session.level.number, true)
+      : startMiniClassic(session.mode, session.rules, { replayIndex: session.index });
+    void fresh.catch(() => {
       setRestartFailed(true);
     }).finally(() => {
       restartPending.current = false;
@@ -354,7 +369,9 @@ function MiniClassicGame({ mode, fromSavedGames }: { mode: MiniMode; fromSavedGa
       quitPending.current = true;
       setQuitting(true);
       void quitMiniClassic(session.id).then((quit) => {
-        if (quit && navigation.isFocused()) router.dismissTo(fromSavedGames ? '/saved-games' : '/');
+        if (quit && navigation.isFocused()) {
+          router.dismissTo(level ? { pathname: '/levels', params: { difficulty: session.difficulty } } : fromSavedGames ? '/saved-games' : '/');
+        }
       }).catch(() => {
         if (navigation.isFocused()) Alert.alert('Could not quit game', 'Your puzzle is still open. Try again.');
       }).finally(() => {
@@ -435,8 +452,9 @@ function AlternatePlay({ mode, round, onEnter, onUndo, onRestart, onQuit, quitti
   const [rulesOpen, setRulesOpen] = useState(false);
   const [restartOpen, setRestartOpen] = useState(false);
   const scroll = useRef<ScrollViewInstance>(null);
-  const showTimer = classic && (timer || classic.session.rules.timerMinutes > 0);
+  const showTimer = classic && (timer || miniClassicTimeLimit(classic.session) !== null);
   const showMistakes = classic && classic.session.rules.mistakes !== 'off';
+  const mistakeLimit = classic ? miniMistakeLimit(classic.session) : null;
   const boardEdge = useBoardSize((mode === 'mini-4' ? 245 : 300) + (showTimer || showMistakes ? 52 : 0), spacing.lg);
   const puzzle = getAlternatePuzzle(mode, round.index);
   const progress = round.progress;
@@ -503,7 +521,7 @@ function AlternatePlay({ mode, round, onEnter, onUndo, onRestart, onQuit, quitti
               <View style={styles.roundMetric}>
                 <Text style={type.label}>Mistakes</Text>
                 <Text style={[styles.metricValue, classic.phase === 'mistakes' && styles.warning]}>
-                  {classic.session.mistakes}{typeof classic.session.rules.mistakes === 'number' ? `/${classic.session.rules.mistakes}` : ''}
+                  {classic.session.mistakes}{mistakeLimit !== null ? `/${mistakeLimit}` : ''}
                 </Text>
               </View>
             )}
@@ -574,9 +592,23 @@ function AlternatePlay({ mode, round, onEnter, onUndo, onRestart, onQuit, quitti
         {failed && classic ? (
           <Card style={[styles.notice, styles.failureCard]}>
             <Text style={type.heading} accessibilityRole="header">{classic.phase === 'time' ? 'Time’s up' : 'Mistake limit reached'}</Text>
-            <Text style={type.dim}>Try this puzzle again with the same rules or choose a new game.</Text>
-            <Button variant="primary" label="Try again" icon="refresh-outline" disabled={classic.restarting} onPress={() => resetControls(onRestart)} />
-            <Button variant="ghost" label="Game Setup" disabled={classic.restarting} onPress={() => router.replace('/new-game')} />
+            {classic.session.level ? (
+              <LevelFailure
+                sessionId={classic.session.id}
+                byMistakes={classic.phase === 'mistakes'}
+                extraMistakes={classic.session.level.extraMistakes}
+                canContinue={canContinueMiniLevel(classic.session)}
+                disabled={classic.restarting}
+                onRetry={() => resetControls(onRestart)}
+                onLevels={() => router.dismissTo({ pathname: '/levels', params: { difficulty: classic.session.difficulty } })}
+              />
+            ) : (
+              <>
+                <Text style={type.dim}>Try this puzzle again with the same rules or choose a new game.</Text>
+                <Button variant="primary" label="Try again" icon="refresh-outline" disabled={classic.restarting} onPress={() => resetControls(onRestart)} />
+                <Button variant="ghost" label="Game Setup" disabled={classic.restarting} onPress={() => router.replace('/new-game')} />
+              </>
+            )}
           </Card>
         ) : finished && classic ? (
           <Card style={[styles.notice, { borderColor: visual.tint }]}>

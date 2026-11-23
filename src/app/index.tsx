@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { dateKeyOf } from '../game/daily';
+import { LEVEL_COUNT } from '../game/levels';
 import { listPlayNowSaves } from '../game/savedGames';
 import { appStore } from '../state/app';
 import { useStore } from '../state/store';
@@ -29,6 +30,9 @@ export default function HomeScreen() {
   const daily = useStore(appStore, (s) => s.sessions.daily);
   const dailyCompleted = useStore(appStore, (s) => s.dailyCompleted);
   const credits = useStore(appStore, (s) => s.credits);
+  const levelStars = useStore(appStore, (s) => s.levelStars);
+  const levelsCleared = Object.values(levelStars).reduce((sum, stars) => sum + stars.filter((earned) => earned > 0).length, 0);
+  const levelsTotal = Object.keys(levelStars).length * LEVEL_COUNT;
   const [moreOpen, setMoreOpen] = useState(false);
   useScreenFocused();
   const today = dateKeyOf(new Date());
@@ -92,8 +96,10 @@ export default function HomeScreen() {
         </View>
 
         <View style={styles.menu}>
+          <HomeLink label="Levels" detail={`${levelsCleared} of ${levelsTotal} cleared`} icon="trending-up-outline" tint={colors.accent} onPress={() => router.push('/levels')} />
           <HomeLink label="Daily Puzzle" detail={dailyDetail} icon="calendar-outline" tint={colors.accent} onPress={() => router.push('/daily')} />
           <HomeLink label="Speed Round" detail="1–10 minutes" icon="flash-outline" tint={colors.accent} onPress={() => router.push('/speed-round')} />
+          <HomeLink label="Your Puzzle" detail="Enter one to solve" icon="create-outline" tint={colors.accent} onPress={() => router.push('/custom')} />
         </View>
 
         <View style={styles.more}>

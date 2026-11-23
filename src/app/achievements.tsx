@@ -2,74 +2,20 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useMemo } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { ENABLED_DIFFICULTIES } from '../data/pool';
-import type { Difficulty } from '../engine/grader';
-import { dateKeyOf, parseDateKey } from '../game/daily';
-import { weeklyBadgeWeeks } from '../game/events';
-import type { Completion } from '../storage/repository';
+import { achievementsFor, isEarned, type Achievement } from '../game/achievements';
+import { playerLevel } from '../game/rewards';
+import { appStore } from '../state/app';
+import { useStore } from '../state/store';
 import { Card, type IconName, Screen } from '../ui/controls';
 import { colors, gradients, radius, spacing, type } from '../ui/theme';
 import { useCompletionHistory } from '../ui/useCompletionHistory';
 
-interface Milestone {
-  title: string;
-  description: string;
-  icon: IconName;
-  progress: number;
-  goal: number;
-}
-
-function longestDailyStreak(dates: ReadonlySet<string>): number {
-  let longest = 0;
-  let consecutive = 0;
-  let nextDate = '';
-  for (const key of [...dates].sort()) {
-    consecutive = key === nextDate ? consecutive + 1 : 1;
-    longest = Math.max(longest, consecutive);
-    const date = parseDateKey(key);
-    date.setDate(date.getDate() + 1);
-    nextDate = dateKeyOf(date);
-  }
-  return longest;
-}
-
-function milestonesFor(completions: readonly Completion[]): Milestone[] {
-  const solvedDifficulties = new Set<Difficulty>();
-  const dailyDates = new Set<string>();
-  let solvedWithoutHints = 0;
-  for (const completion of completions) {
-    solvedDifficulties.add(completion.difficulty);
-    if (completion.slot === 'daily' && completion.dateKey) dailyDates.add(completion.dateKey);
-    if (completion.hints === 0) solvedWithoutHints++;
-  }
-
-  return [
-    { title: 'First solve', description: 'Solve your first puzzle.', icon: 'trophy-outline', progress: completions.length, goal: 1 },
-    { title: 'Ten solves', description: 'Solve 10 puzzles.', icon: 'medal-outline', progress: completions.length, goal: 10 },
-    {
-      title: 'Every difficulty',
-      description: 'Solve a puzzle at each available difficulty.',
-      icon: 'layers-outline',
-      progress: ENABLED_DIFFICULTIES.filter((difficulty) => solvedDifficulties.has(difficulty)).length,
-      goal: ENABLED_DIFFICULTIES.length,
-    },
-    { title: 'First daily', description: 'Finish a Daily Puzzle.', icon: 'calendar-outline', progress: dailyDates.size, goal: 1 },
-    {
-      title: 'Three-day streak',
-      description: 'Finish Daily Puzzles for 3 consecutive dates.',
-      icon: 'flame-outline',
-      progress: longestDailyStreak(dailyDates),
-      goal: 3,
-    },
-    { title: 'No hints', description: 'Solve a puzzle without using hints.', icon: 'star-outline', progress: solvedWithoutHints, goal: 1 },
-    { title: 'Weekly Champion', description: 'Solve all three stages of a Weekly Challenge.', icon: 'ribbon-outline', progress: weeklyBadgeWeeks(completions).length, goal: 1 },
-  ];
-}
-
 export default function AchievementsScreen() {
   const completions = useCompletionHistory();
-  const milestones = useMemo(() => milestonesFor(completions ?? []), [completions]);
-  const unlocked = milestones.filter(({ progress, goal }) => progress >= goal).length;
+  const streakDays = useStore(appStore, (s) => s.streakDays);
+  const rank = playerLevel(useStore(appStore, (s) => s.xp));
+  const achievements = useMemo(() => achievementsFor(completions ?? [], streakDays), [completions, streakDays]);
+  const unlocked = achievements.filter(isEarned).length;
 
   return (
     <Screen title="Achievements">
@@ -85,16 +31,20 @@ export default function AchievementsScreen() {
                 <View style={styles.summaryIcon}>
                   <Ionicons name="trophy" size={29} color={colors.onAccent} />
                 </View>
-                <Text style={[type.heading, styles.summaryTitle]} accessibilityRole="header">
-                  {unlocked} of {milestones.length} badges unlocked
-                </Text>
+                <View style={styles.summaryText}>
+                  <Text style={type.heading} accessibilityRole="header">
+                    {unlocked} of {achievements.length} badges unlocked
+                  </Text>
+                  <Text style={type.dim}>Player level {rank.level} · {rank.xp} XP</Text>
+                </View>
               </View>
               <View style={styles.progressTrack}>
-                <View style={[styles.progressFill, { width: `${(unlocked / milestones.length) * 100}%` }]} />
+                <View style={[styles.progressFill, { width: `${(unlocked / achievements.length) * 100}%` }]} />
               </View>
+              <Text style={type.dim}>Each badge pays hint credits once, the first time you earn it.</Text>
             </Card>
 
-            {milestones.map((milestone) => <Badge key={milestone.title} milestone={milestone} />)}
+            {achievements.map((achievement) => <Badge key={achievement.key} achievement={achievement} />)}
           </>
         )}
       </ScrollView>
@@ -102,20 +52,27 @@ export default function AchievementsScreen() {
   );
 }
 
-function Badge({ milestone }: { milestone: Milestone }) {
-  const { title, description, icon, progress, goal } = milestone;
-  const earned = progress >= goal;
-  const status = earned ? 'Unlocked' : `${progress} of ${goal}`;
+function Badge({ achievement }: { achievement: Achievement }) {
+  const { title, description, icon, progress, goal, credits } = achievement;
+  const earned = isEarned(achievement);
+  const status = earned ? 'Unlocked' : `${Math.min(progress, goal)} of ${goal}`;
+  const reward = `${credits} hint ${credits === 1 ? 'credit' : 'credits'}`;
   return (
     <Card style={earned && styles.earned}>
-      <View style={styles.badge} accessible accessibilityLabel={`${title}. ${description} ${status}.`}>
+      <View style={styles.badge} accessible accessibilityLabel={`${title}. ${description} ${status}. Reward: ${reward}.`}>
         <View style={[styles.badgeIcon, earned && styles.badgeIconEarned]}>
-          <Ionicons name={icon} size={25} color={earned ? colors.accent : colors.textDim} />
+          <Ionicons name={icon as IconName} size={25} color={earned ? colors.accent : colors.textDim} />
         </View>
         <View style={styles.badgeText}>
           <Text style={type.body}>{title}</Text>
           <Text style={type.dim}>{description}</Text>
-          <Text style={[type.label, earned && styles.statusEarned]}>{status}</Text>
+          <View style={styles.statusRow}>
+            <Text style={[type.label, earned && styles.statusEarned]}>{status}</Text>
+            <View style={styles.reward}>
+              <Ionicons name="bulb-outline" size={13} color={earned ? colors.textFaint : colors.accent} />
+              <Text style={[styles.rewardText, earned && styles.rewardPaid]}>+{credits}</Text>
+            </View>
+          </View>
         </View>
         {earned && <Ionicons name="checkmark-circle" size={21} color={colors.accent} />}
       </View>
@@ -128,7 +85,7 @@ const styles = StyleSheet.create({
   loading: { alignSelf: 'center', marginTop: spacing.lg },
   summary: { padding: spacing.lg, gap: spacing.md, backgroundImage: gradients.panel },
   summaryHeading: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  summaryTitle: { flex: 1 },
+  summaryText: { flex: 1, gap: 2 },
   summaryIcon: {
     width: 54, height: 54, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center',
     backgroundColor: colors.accent, backgroundImage: gradients.gold,
@@ -142,6 +99,10 @@ const styles = StyleSheet.create({
   },
   badgeIconEarned: { backgroundColor: colors.accentSoft },
   badgeText: { flex: 1, gap: spacing.xs },
+  statusRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  reward: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  rewardText: { fontSize: 13, fontWeight: '800', color: colors.accent, fontVariant: ['tabular-nums'] },
+  rewardPaid: { color: colors.textFaint },
   earned: { borderColor: colors.accentEdge },
   statusEarned: { color: colors.accent },
 });

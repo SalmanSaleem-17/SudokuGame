@@ -32,6 +32,9 @@ const TIER: Record<Technique, number> = {
   hiddenPair: 3,
   nakedTriple: 4,
   xWing: 4,
+  hiddenTriple: 4,
+  swordfish: 4,
+  xyWing: 4,
 };
 
 const WEIGHT: Record<Technique, number> = {
@@ -42,6 +45,9 @@ const WEIGHT: Record<Technique, number> = {
   hiddenPair: 20,
   nakedTriple: 28,
   xWing: 34,
+  hiddenTriple: 38,
+  swordfish: 46,
+  xyWing: 42,
 };
 
 /** Easy puzzles keep at least this many givens. */
@@ -88,7 +94,7 @@ export function countTechniques(steps: readonly Step[]): TechniqueCounts {
  * Easy: hidden singles only, with a generous number of givens.
  * Medium: singles only, but needs naked singles or has fewer givens.
  * Hard: needs locked candidates or pairs.
- * Expert: needs naked triples or X-Wings.
+ * Expert: needs triples, X-Wings, Swordfish or XY-Wings.
  */
 export function gradePuzzle(givens: readonly number[]): Grade {
   const result = solveLogically(givens);

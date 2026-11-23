@@ -5,9 +5,10 @@
 import type { Difficulty } from '../engine/grader';
 import { decodeChallengeScore, encodeChallengeScore, type ChallengeScore } from '../game/challenge';
 import { isMistakeReview, isTechniquePackId, type MistakeAttempt, type TechniquePackId } from '../game/learning';
-import { MINI_CLASSIC_KEY, readMiniClassic, type MiniClassicSession } from '../game/miniClassic';
+import { levelStars } from '../game/levels';
+import { MINI_CLASSIC_KEY, MINI_LEVEL_KEY, readMiniClassic, type MiniClassicSession } from '../game/miniClassic';
 import { Session, SessionSlot, isValidSession } from '../game/session';
-import { DEFAULT_SETTINGS, Settings, isBoardTheme } from '../game/settings';
+import { DEFAULT_SETTINGS, Settings, isBoardTheme, isReminderHour } from '../game/settings';
 import { Database, SqlDriver, Tx } from './database';
 
 type Migration = string | ((tx: Tx) => Promise<void>);
@@ -80,6 +81,12 @@ const MIGRATIONS: Migration[] = [
       if (count > 0) await tx.run('UPDATE completions SET review_count = ? WHERE session_id = ?', [count, row.session_id]);
     }
   },
+  async (tx) => {
+    // Levels mode: the stage number and stars of a finished level. Safe to run on a database that already has them.
+    const columns = new Set((await tx.all<{ name: string }>('PRAGMA table_info(completions)')).map(({ name }) => name));
+    if (!columns.has('level_number')) await tx.run('ALTER TABLE completions ADD COLUMN level_number INTEGER');
+    if (!columns.has('stars')) await tx.run('ALTER TABLE completions ADD COLUMN stars INTEGER');
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;
@@ -94,6 +101,9 @@ export interface Completion {
   techniquePack?: TechniquePackId;
   mistakeReview?: MistakeAttempt[];
   reviewCount?: number;
+  /** Levels mode: the stage number and the stars earned (1 to 3). */
+  level?: number;
+  stars?: number;
   timeMs: number;
   mistakes: number;
   hints: number;
@@ -110,6 +120,8 @@ interface CompletionRow {
   technique_pack: string | null;
   mistake_review?: string | null;
   review_count?: number;
+  level_number?: number | null;
+  stars?: number | null;
   time_ms: number;
   mistakes: number;
   hints: number;
@@ -139,6 +151,7 @@ function toCompletion(row: CompletionRow): Completion {
     ...(isTechniquePackId(row.technique_pack) && { techniquePack: row.technique_pack }),
     ...(mistakeReview && { mistakeReview }),
     ...(reviewCount > 0 && { reviewCount }),
+    ...(typeof row.level_number === 'number' && { level: row.level_number, stars: row.stars ?? 1 }),
     timeMs: row.time_ms,
     mistakes: row.mistakes,
     hints: row.hints,
@@ -160,6 +173,50 @@ export class OwnChallengeScoreError extends Error {
     super('This is your result. Ask your friend to share theirs.');
     this.name = 'OwnChallengeScoreError';
   }
+}
+
+/** Everything a backup file carries. Hint credits and reward history stay on the device. */
+export interface BackupData {
+  app: 'sudoku-studio';
+  schema: number;
+  exportedAt: number;
+  kv: { key: string; value: string }[];
+  sessions: { slot: string; session_id: string; data: string; updated_at: number }[];
+  completions: Record<string, string | number | null>[];
+  challengeScores: { challenge_code: string; result_code: string }[];
+}
+
+export class InvalidBackupError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidBackupError';
+  }
+}
+
+const COMPLETION_COLUMNS = [
+  'session_id', 'slot', 'puzzle_id', 'difficulty', 'date_key', 'time_ms', 'mistakes', 'hints', 'completed_at',
+  'challenge_code', 'technique_pack', 'mistake_review', 'review_count', 'level_number', 'stars',
+] as const;
+
+function readBackup(value: unknown): BackupData {
+  const data = value as BackupData | null;
+  const text = (v: unknown) => typeof v === 'string';
+  const whole = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
+  if (!data || typeof data !== 'object' || data.app !== 'sudoku-studio') {
+    throw new InvalidBackupError('This file is not a Sudoku Studio backup.');
+  }
+  if (!whole(data.schema) || data.schema > SCHEMA_VERSION) {
+    throw new InvalidBackupError('This backup was made by a newer version of the app. Update the app and try again.');
+  }
+  const ok =
+    Array.isArray(data.kv) && data.kv.every((row) => row && text(row.key) && text(row.value)) &&
+    Array.isArray(data.sessions) && data.sessions.every((row) => row && text(row.slot) && text(row.session_id) && text(row.data) && whole(row.updated_at)) &&
+    Array.isArray(data.completions) && data.completions.every((row) =>
+      row && text(row.session_id) && text(row.slot) && text(row.puzzle_id) && text(row.difficulty) &&
+      whole(row.time_ms) && whole(row.mistakes) && whole(row.hints) && whole(row.completed_at)) &&
+    Array.isArray(data.challengeScores) && data.challengeScores.every((row) => row && text(row.challenge_code) && text(row.result_code));
+  if (!ok) throw new InvalidBackupError('This backup file is damaged and cannot be restored.');
+  return data;
 }
 
 export class Repository {
@@ -189,7 +246,8 @@ export class Repository {
     try {
       const saved = JSON.parse(row.value) as Partial<Settings>;
       const boardTheme = isBoardTheme(saved?.boardTheme) ? saved.boardTheme : DEFAULT_SETTINGS.boardTheme;
-      return { ...DEFAULT_SETTINGS, ...saved, boardTheme };
+      const reminderHour = isReminderHour(saved?.reminderHour) ? saved.reminderHour : DEFAULT_SETTINGS.reminderHour;
+      return { ...DEFAULT_SETTINGS, ...saved, boardTheme, reminderHour, reminder: saved?.reminder === true };
     } catch {
       return { ...DEFAULT_SETTINGS };
     }
@@ -224,7 +282,7 @@ export class Repository {
 
   async loadSessions(): Promise<Record<SessionSlot, Session | null>> {
     const rows = await this.db.direct((tx) => tx.all<{ slot: SessionSlot; data: string }>('SELECT slot, data FROM sessions'));
-    const out: Record<SessionSlot, Session | null> = { classic: null, daily: null, challenge: null, technique: null, weekly: null };
+    const out: Record<SessionSlot, Session | null> = { classic: null, daily: null, challenge: null, technique: null, weekly: null, level: null };
     for (const row of rows) {
       try {
         const parsed: unknown = JSON.parse(row.data);
@@ -283,6 +341,52 @@ export class Repository {
     });
   }
 
+  /** Records a grant id once. Returns false when that id was already used. */
+  private async claim(tx: Tx, grantId: string, credits: number, now: number): Promise<boolean> {
+    const insert = await tx.run('INSERT OR IGNORE INTO reward_grants (grant_id, credits, created_at) VALUES (?, ?, ?)', [grantId, credits, now]);
+    if (insert.changes !== 1) return false;
+    if (credits > 0) await tx.run('UPDATE wallet SET credits = credits + ? WHERE id = 1', [credits]);
+    return true;
+  }
+
+  /** Pays several gameplay rewards together. Ids that were already paid are skipped. */
+  grantRewards<T extends { id: string; credits: number }>(grants: readonly T[], now: number): Promise<{ granted: T[]; balance: number }> {
+    return this.db.transaction(async (tx) => {
+      const granted: T[] = [];
+      for (const grant of grants) {
+        if (await this.claim(tx, grant.id, grant.credits, now)) granted.push(grant);
+      }
+      return { granted, balance: await this.balance(tx) };
+    });
+  }
+
+  /**
+   * Applies an ad reward that changes a saved game instead of the credit balance (an extra
+   * mistake). The grant id and the session write commit together, so a repeated callback
+   * for the same ad cannot apply the reward twice.
+   */
+  grantSessionReward(grantId: string, session: Session, now: number): Promise<{ granted: boolean; balance: number }> {
+    return this.db.transaction(async (tx) => {
+      const granted = await this.claim(tx, grantId, 0, now);
+      if (granted) await this.writeSession(tx, session, now);
+      return { granted, balance: await this.balance(tx) };
+    });
+  }
+
+  /** Applies an ad reward that is stored as mode progress (a repaired streak day). */
+  grantModeReward(grantId: string, key: string, progress: unknown, now: number): Promise<{ granted: boolean; balance: number }> {
+    return this.db.transaction(async (tx) => {
+      const granted = await this.claim(tx, grantId, 0, now);
+      if (granted) {
+        await tx.run(
+          'INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value',
+          [`mode:${key}`, JSON.stringify(progress ?? null)],
+        );
+      }
+      return { granted, balance: await this.balance(tx) };
+    });
+  }
+
   /**
    * Persists a revealed hint with its payment. `session` already contains the explanation;
    * the debit (if any) and the session write commit together or not at all.
@@ -324,12 +428,12 @@ export class Repository {
   private async insertCompletion(tx: Tx, completion: Completion): Promise<{ recorded: boolean }> {
     const insert = await tx.run(
       `INSERT OR IGNORE INTO completions
-         (session_id, slot, puzzle_id, difficulty, date_key, time_ms, mistakes, hints, completed_at, challenge_code, technique_pack, mistake_review, review_count)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (session_id, slot, puzzle_id, difficulty, date_key, time_ms, mistakes, hints, completed_at, challenge_code, technique_pack, mistake_review, review_count, level_number, stars)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [completion.sessionId, completion.slot, completion.puzzleId, completion.difficulty, completion.dateKey,
         Math.round(completion.timeMs), completion.mistakes, completion.hints, completion.completedAt, completion.challengeCode,
         completion.techniquePack ?? null, completion.mistakeReview?.length ? JSON.stringify(completion.mistakeReview) : null,
-        completion.mistakeReview?.length ?? 0],
+        completion.mistakeReview?.length ?? 0, completion.level ?? null, completion.stars ?? null],
     );
     return { recorded: insert.changes === 1 };
   }
@@ -343,29 +447,34 @@ export class Repository {
         timeMs: session.elapsedMs, mistakes: session.mistakes, hints: session.hintsUsed, completedAt: now,
         challengeCode: session.slot === 'challenge' ? session.challengeCode ?? null : null,
         techniquePack: session.techniquePack, mistakeReview: session.mistakeReview,
+        ...(session.slot === 'level' && session.level && {
+          level: session.level.number, stars: levelStars(session.difficulty, session.elapsedMs),
+        }),
       });
       await tx.run('DELETE FROM sessions WHERE slot = ? AND session_id = ?', [session.slot, session.id]);
       return result;
     });
   }
 
+  /** Records a finished small-board game: a Play Now mini, or an Easy or Medium level. */
   recordMiniCompletion(session: MiniClassicSession, now: number): Promise<{ recorded: boolean }> {
     return this.db.transaction(async (tx) => {
       const result = await this.insertCompletion(tx, {
-        sessionId: session.id, slot: 'mini', puzzleId: session.progress.puzzleId, difficulty: session.difficulty,
+        sessionId: session.id, slot: session.level ? 'level' : 'mini', puzzleId: session.progress.puzzleId, difficulty: session.difficulty,
         dateKey: null, timeMs: session.elapsedMs, mistakes: session.mistakes, hints: 0, completedAt: now, challengeCode: null,
+        ...(session.level && { level: session.level.number, stars: levelStars(session.difficulty, session.elapsedMs) }),
       });
-      await this.deleteMiniSave(tx, session.id);
+      await this.deleteMiniSave(tx, session.id, session.level ? MINI_LEVEL_KEY : MINI_CLASSIC_KEY);
       return result;
     });
   }
 
-  deleteMiniClassic(id: string): Promise<void> {
-    return this.db.transaction((tx) => this.deleteMiniSave(tx, id));
+  deleteMiniClassic(id: string, saveKey: string = MINI_CLASSIC_KEY): Promise<void> {
+    return this.db.transaction((tx) => this.deleteMiniSave(tx, id, saveKey));
   }
 
-  private async deleteMiniSave(tx: Tx, id: string): Promise<void> {
-    const key = `mode:${MINI_CLASSIC_KEY}`;
+  private async deleteMiniSave(tx: Tx, id: string, saveKey: string): Promise<void> {
+    const key = `mode:${saveKey}`;
     const row = await tx.first<{ value: string }>('SELECT value FROM kv WHERE key = ?', [key]);
     if (row && readMiniClassic(JSON.parse(row.value))?.id === id) {
       await tx.run('DELETE FROM kv WHERE key = ?', [key]);
@@ -392,10 +501,69 @@ export class Repository {
   async listCompletions(): Promise<Completion[]> {
     const rows = await this.db.direct((tx) => tx.all<CompletionRow>(
       `SELECT session_id, slot, puzzle_id, difficulty, date_key, time_ms, mistakes, hints, completed_at, challenge_code,
-         technique_pack, review_count
+         technique_pack, review_count, level_number, stars
        FROM completions ORDER BY completed_at`,
     ));
     return rows.map(toCompletion);
+  }
+
+  /* ---------------------------- reset and backup ------------------------ */
+
+  /**
+   * Erases games, results and statistics. Settings, hint credits and the record of rewards
+   * already paid are kept, so a reset can never be used to earn the same reward again.
+   */
+  resetProgress(): Promise<void> {
+    return this.db.transaction(async (tx) => {
+      await tx.run('DELETE FROM sessions');
+      await tx.run('DELETE FROM completions');
+      await tx.run('DELETE FROM challenge_scores');
+      await tx.run("DELETE FROM kv WHERE key LIKE 'mode:%'");
+    });
+  }
+
+  exportData(now: number): Promise<BackupData> {
+    return this.db.direct(async (tx) => ({
+      app: 'sudoku-studio' as const,
+      schema: SCHEMA_VERSION,
+      exportedAt: now,
+      kv: await tx.all<BackupData['kv'][number]>('SELECT key, value FROM kv ORDER BY key'),
+      sessions: await tx.all<BackupData['sessions'][number]>('SELECT slot, session_id, data, updated_at FROM sessions ORDER BY slot'),
+      completions: await tx.all<BackupData['completions'][number]>(`SELECT ${COMPLETION_COLUMNS.join(', ')} FROM completions ORDER BY completed_at`),
+      challengeScores: await tx.all<BackupData['challengeScores'][number]>('SELECT challenge_code, result_code FROM challenge_scores ORDER BY challenge_code'),
+    }));
+  }
+
+  /** Replaces games, results and settings with a backup. Nothing changes if the file is invalid. */
+  importData(value: unknown): Promise<void> {
+    const data = readBackup(value);
+    return this.db.transaction(async (tx) => {
+      await tx.run('DELETE FROM sessions');
+      await tx.run('DELETE FROM completions');
+      await tx.run('DELETE FROM challenge_scores');
+      await tx.run('DELETE FROM kv');
+      for (const row of data.kv) await tx.run('INSERT INTO kv (key, value) VALUES (?, ?)', [row.key, row.value]);
+      for (const row of data.sessions) {
+        let valid = false;
+        try {
+          const session: unknown = JSON.parse(row.data);
+          valid = isValidSession(session) && session.slot === row.slot && session.id === row.session_id;
+        } catch {
+          valid = false;
+        }
+        if (valid) await tx.run('INSERT INTO sessions (slot, session_id, data, updated_at) VALUES (?, ?, ?, ?)', [row.slot, row.session_id, row.data, row.updated_at]);
+      }
+      const placeholders = COMPLETION_COLUMNS.map(() => '?').join(', ');
+      for (const row of data.completions) {
+        await tx.run(
+          `INSERT OR IGNORE INTO completions (${COMPLETION_COLUMNS.join(', ')}) VALUES (${placeholders})`,
+          COMPLETION_COLUMNS.map((column) => row[column] ?? (column === 'review_count' ? 0 : null)),
+        );
+      }
+      for (const row of data.challengeScores) {
+        await tx.run('INSERT OR IGNORE INTO challenge_scores (challenge_code, result_code) VALUES (?, ?)', [row.challenge_code, row.result_code]);
+      }
+    });
   }
 
   async getFriendChallengeScore(challengeCode: string): Promise<ChallengeScore | null> {

@@ -30,7 +30,10 @@ export type Technique =
   | 'nakedPair'
   | 'hiddenPair'
   | 'nakedTriple'
-  | 'xWing';
+  | 'xWing'
+  | 'hiddenTriple'
+  | 'swordfish'
+  | 'xyWing';
 
 export const TECHNIQUE_NAMES: Record<Technique, string> = {
   hiddenSingle: 'Hidden single',
@@ -40,6 +43,9 @@ export const TECHNIQUE_NAMES: Record<Technique, string> = {
   hiddenPair: 'Hidden pair',
   nakedTriple: 'Naked triple',
   xWing: 'X-Wing',
+  hiddenTriple: 'Hidden triple',
+  swordfish: 'Swordfish',
+  xyWing: 'XY-Wing',
 };
 
 /** Order the logical solver tries techniques in. Fixed, so solution paths are reproducible. */
@@ -51,6 +57,9 @@ export const TECHNIQUE_ORDER: Technique[] = [
   'hiddenPair',
   'nakedTriple',
   'xWing',
+  'hiddenTriple',
+  'swordfish',
+  'xyWing',
 ];
 
 export interface CellDigit {
@@ -348,6 +357,128 @@ function findXWing(state: SolveState): Step | null {
   return null;
 }
 
+/* ---------------------------- hidden triple ------------------------- */
+
+function findHiddenTriple(state: SolveState): Step | null {
+  const { cands, values } = state;
+  for (let u = 0; u < 27; u++) {
+    const empties = UNITS[u].filter((c) => values[c] === 0);
+    if (empties.length < 5) continue;
+    for (let a = 1; a <= 7; a++) {
+      for (let b = a + 1; b <= 8; b++) {
+        for (let c = b + 1; c <= 9; c++) {
+          const triple = bit(a) | bit(b) | bit(c);
+          // Each digit must still be open in this unit, or it is a smaller pattern.
+          if (![a, b, c].every((d) => empties.some((cell) => cands[cell] & bit(d)))) continue;
+          const spots = empties.filter((cell) => cands[cell] & triple);
+          if (spots.length !== 3) continue;
+          const eliminations: CellDigit[] = [];
+          for (const cell of spots) {
+            for (const d of digitsOf(cands[cell] & ~triple)) eliminations.push({ cell, digit: d });
+          }
+          if (eliminations.length === 0) continue;
+          return {
+            technique: 'hiddenTriple',
+            eliminations,
+            cells: spots,
+            units: [u],
+            premise: [{ cells: UNITS[u], digits: [a, b, c] }],
+            explanation: `In ${unitName(u)}, the digits ${a}, ${b} and ${c} can only go in ${listCells(spots)}. Those three cells must hold those three digits, so every other candidate can be removed from them.`,
+          };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/* ------------------------------ Swordfish --------------------------- */
+
+function findSwordfish(state: SolveState): Step | null {
+  const { cands } = state;
+  for (const byRow of [true, false]) {
+    for (let d = 1; d <= 9; d++) {
+      const m = bit(d);
+      const lines: { line: number; spots: number[] }[] = [];
+      for (let line = 0; line < 9; line++) {
+        const spots: number[] = [];
+        for (let k = 0; k < 9; k++) {
+          if (cands[byRow ? line * 9 + k : k * 9 + line] & m) spots.push(k);
+        }
+        if (spots.length === 2 || spots.length === 3) lines.push({ line, spots });
+      }
+      for (let i = 0; i < lines.length; i++) {
+        for (let j = i + 1; j < lines.length; j++) {
+          for (let k = j + 1; k < lines.length; k++) {
+            const base = [lines[i], lines[j], lines[k]];
+            const cover = [...new Set(base.flatMap((l) => l.spots))].sort((x, y) => x - y);
+            if (cover.length !== 3) continue;
+            const baseLines = base.map((l) => l.line);
+            const at = (line: number, pos: number) => (byRow ? line * 9 + pos : pos * 9 + line);
+            const eliminations: CellDigit[] = [];
+            for (const pos of cover) {
+              for (let line = 0; line < 9; line++) {
+                if (baseLines.includes(line)) continue;
+                const cell = at(line, pos);
+                if (cands[cell] & m) eliminations.push({ cell, digit: d });
+              }
+            }
+            if (eliminations.length === 0) continue;
+            const cells = base.flatMap((l) => l.spots.map((pos) => at(l.line, pos)));
+            const baseUnits = baseLines.map((line) => (byRow ? rowUnit(line) : colUnit(line)));
+            const coverUnits = cover.map((pos) => (byRow ? colUnit(pos) : rowUnit(pos)));
+            return {
+              technique: 'swordfish',
+              eliminations,
+              cells,
+              units: [...baseUnits, ...coverUnits],
+              premise: [{ cells: baseUnits.flatMap((unit) => UNITS[unit]), digits: [d] }],
+              explanation: `In ${joinWords(baseUnits.map(unitName))}, the digit ${d} can only go in ${joinWords(coverUnits.map(unitName))}. Those three lines need three ${d}s, one in each, so they use up ${joinWords(coverUnits.map(unitName))}; ${d} can be removed from ${listCells(eliminations.map((e) => e.cell))}.`,
+            };
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/* ------------------------------- XY-Wing ---------------------------- */
+
+function findXYWing(state: SolveState): Step | null {
+  const { cands, values } = state;
+  const pairs: number[] = [];
+  for (let cell = 0; cell < 81; cell++) if (values[cell] === 0 && countBits(cands[cell]) === 2) pairs.push(cell);
+  for (const pivot of pairs) {
+    const wings = pairs.filter((cell) => cell !== pivot && PEERS[pivot].includes(cell) && countBits(cands[cell] & cands[pivot]) === 1);
+    for (let i = 0; i < wings.length; i++) {
+      for (let j = i + 1; j < wings.length; j++) {
+        const a = wings[i];
+        const b = wings[j];
+        // The wings share one digit that the pivot does not have, and together cover the pivot.
+        const shared = cands[a] & cands[b] & ~cands[pivot];
+        if (countBits(shared) !== 1 || ((cands[a] | cands[b]) & cands[pivot]) !== cands[pivot]) continue;
+        const z = singleDigit(shared);
+        const eliminations: CellDigit[] = [];
+        for (const cell of PEERS[a]) {
+          if (cell !== pivot && cell !== b && PEERS[b].includes(cell) && cands[cell] & shared) eliminations.push({ cell, digit: z });
+        }
+        if (eliminations.length === 0) continue;
+        const [x, y] = digitsOf(cands[pivot]);
+        return {
+          technique: 'xyWing',
+          eliminations,
+          cells: [pivot, a, b],
+          units: [],
+          premise: [{ cells: [pivot, a, b], digits: [1, 2, 3, 4, 5, 6, 7, 8, 9] }],
+          explanation: `${cellName(pivot)} can only be ${x} or ${y}. Whichever it is, one of ${cellName(a)} and ${cellName(b)} is forced to be ${z}, because each of them shares one digit with ${cellName(pivot)} and has ${z} as its other option. Any cell that sees both of them cannot be ${z}, so ${z} can be removed from ${listCells(eliminations.map((e) => e.cell))}.`,
+        };
+      }
+    }
+  }
+  return null;
+}
+
 export function findStep(state: SolveState, technique: Technique): Step | null {
   switch (technique) {
     case 'hiddenSingle':
@@ -364,6 +495,12 @@ export function findStep(state: SolveState, technique: Technique): Step | null {
       return findNakedSubset(state, 3);
     case 'xWing':
       return findXWing(state);
+    case 'hiddenTriple':
+      return findHiddenTriple(state);
+    case 'swordfish':
+      return findSwordfish(state);
+    case 'xyWing':
+      return findXYWing(state);
   }
 }
 
