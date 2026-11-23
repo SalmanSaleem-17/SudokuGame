@@ -112,7 +112,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       versionCode: 3,
       adaptiveIcon: {
         foregroundImage: './assets/adaptive-icon.png',
-        backgroundColor: '#19191B',
+        backgroundColor: '#1A191A',
       },
     },
     plugins: [
