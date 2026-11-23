@@ -177,6 +177,7 @@ export class OwnChallengeScoreError extends Error {
 
 /** Everything a backup file carries. Hint credits and reward history stay on the device. */
 export interface BackupData {
+  /** The game's first name. Kept so backup files saved before the rename still restore. */
   app: 'sudoku-studio';
   schema: number;
   exportedAt: number;
@@ -203,7 +204,7 @@ function readBackup(value: unknown): BackupData {
   const text = (v: unknown) => typeof v === 'string';
   const whole = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
   if (!data || typeof data !== 'object' || data.app !== 'sudoku-studio') {
-    throw new InvalidBackupError('This file is not a Sudoku Studio backup.');
+    throw new InvalidBackupError('This file is not a Sudoku Vault backup.');
   }
   if (!whole(data.schema) || data.schema > SCHEMA_VERSION) {
     throw new InvalidBackupError('This backup was made by a newer version of the app. Update the app and try again.');
@@ -339,6 +340,13 @@ export class Repository {
       if (granted) await tx.run('UPDATE wallet SET credits = credits + ? WHERE id = 1', [credits]);
       return { granted, balance: await this.balance(tx) };
     });
+  }
+
+  /** Recorded grant ids that start with `prefix`, for rewards that are claimed once: unlocked themes, a day's gift. */
+  async listGrantIds(prefix: string): Promise<string[]> {
+    const rows = await this.db.direct((tx) =>
+      tx.all<{ grant_id: string }>('SELECT grant_id FROM reward_grants WHERE substr(grant_id, 1, ?) = ? ORDER BY grant_id', [prefix.length, prefix]));
+    return rows.map((row) => row.grant_id);
   }
 
   /** Records a grant id once. Returns false when that id was already used. */

@@ -5,6 +5,7 @@ import { BackHandler, Pressable, ScrollView, StyleSheet, Text, View, type Layout
 
 import { DIFFICULTY_NAMES } from '../engine/grader';
 import { findConflicts } from '../engine/grid';
+import { boardContinueOffer } from '../game/continue';
 import { parseDateKey } from '../game/daily';
 import { TECHNIQUE_PACKS } from '../game/learning';
 import { EMPTY_OVERLAY, Overlay } from '../game/overlay';
@@ -26,8 +27,9 @@ import {
   toggleNote,
   undoMove,
 } from '../game/session';
-import { appStore, canContinueLevel, clock, completeSession, flushSession, mutateSession, quitSession, startLevel } from '../state/app';
+import { appStore, clock, completeSession, flushSession, mutateSession, quitSession, startLevel } from '../state/app';
 import { useStore } from '../state/store';
+import { ContinueWithAd } from '../ui/AdOffer';
 import { Board, TINT_COLORS } from '../ui/Board';
 import { BrandTitle } from '../ui/Brand';
 import { HintPanel } from '../ui/HintPanel';
@@ -66,6 +68,7 @@ export default function GameScreen() {
   const reducedMotion = useReducedMotion();
   const credits = useStore(appStore, (s) => s.credits);
   const adIdle = useStore(appStore, (s) => s.reward.phase === 'idle');
+  const canRequestAds = useStore(appStore, (s) => s.ads.canRequestAds);
 
   const [selected, setSelected] = useState<number | null>(null);
   const [armedDigit, setArmedDigit] = useState(0);
@@ -345,6 +348,7 @@ export default function GameScreen() {
   const mistakesLabel = mistakeLimit === null ? `${session.mistakes}` : `${session.mistakes}/${mistakeLimit}`;
   const clearable = selected !== null && !isGiven(session, selected) && (session.values[selected] !== 0 || session.notes[selected] !== 0);
   const difficulty = DIFFICULTY_NAMES[session.difficulty];
+  const continueOffer = failure ? boardContinueOffer(session) : null;
 
   return (
     <Screen
@@ -419,15 +423,17 @@ export default function GameScreen() {
               <LevelFailure
                 sessionId={session.id}
                 byMistakes={failure === 'mistakes'}
-                extraMistakes={session.level?.extraMistakes ?? 0}
-                canContinue={canContinueLevel(session)}
+                offer={continueOffer}
                 onRetry={() => { if (session.level) startLevel(session.difficulty, session.level.number); }}
                 onLevels={() => router.dismissTo({ pathname: '/levels', params: { difficulty: session.difficulty } })}
               />
             ) : (
+            <>
+            {continueOffer && <ContinueWithAd sessionId={session.id} offer={continueOffer} scope="game" style={styles.resume} />}
             <Button
               label={slot === 'classic' || slot === 'daily' ? 'New Game' : modeLabel}
-              variant="primary"
+              variant={continueOffer && canRequestAds ? 'secondary' : 'primary'}
+              disabled={!adIdle}
               icon={slot === 'challenge' ? 'arrow-back' : 'play'}
               onPress={() => {
                 if (slot === 'challenge') router.dismissTo({ pathname: '/challenge', params: { code: session.challengeCode } });
@@ -436,6 +442,7 @@ export default function GameScreen() {
               }}
               style={styles.resume}
             />
+            </>
             )}
             {!!session.mistakeReview?.length && (
               <Button

@@ -159,7 +159,7 @@ export default function LevelsScreen() {
           </View>
           <Text style={styles.rulesNote}>
             3 stars within {formatLimit(times.threeStarSec)}, 2 stars within {formatLimit(times.twoStarSec)}, 1 star for finishing in time.
-            {' '}Out of mistakes? An optional ad adds one more, up to {MAX_EXTRA_MISTAKES} times per level.
+            {' '}Out of mistakes or time? An optional ad adds one more mistake or extra time, each up to {MAX_EXTRA_MISTAKES} times per level.
           </Text>
         </View>
         <Button

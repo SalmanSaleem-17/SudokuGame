@@ -32,6 +32,10 @@ export interface SpeedRound extends SpeedResult {
   values: number[];
   bestBefore: number;
   finished: boolean;
+  /** The round has used its one ad extension. */
+  extended?: boolean;
+  /** Extension time waiting to start: the clock stays still until the player is back from the ad. */
+  pausedMs?: number;
 }
 
 export interface SpeedRecord {
@@ -117,6 +121,7 @@ export function createSpeedClock(wall = Date.now, monotonic = () => performance.
 }
 
 export function speedRemainingMs(round: SpeedRound, now: number): number {
+  if (!round.finished && round.pausedMs !== undefined) return round.pausedMs;
   const elapsed = now - round.startedAt;
   return round.finished || elapsed < 0 ? 0 : Math.max(0, round.format.minutes * 60_000 - elapsed);
 }
@@ -134,8 +139,53 @@ function addResult(record: SpeedRecord, { startedAt, score, mistakes }: SpeedRes
 export function finishSpeedRound(progress: SpeedProgress, now: number): SpeedProgress {
   const { round } = progress;
   if (!round || round.finished || speedRemainingMs(round, now) > 0) return progress;
+  return closeRound(progress, round);
+}
+
+/** Counts the round's result and marks it finished. */
+function closeRound(progress: SpeedProgress, round: SpeedRound): SpeedProgress {
   const record = addResult(speedRecord(progress, round.format), round);
-  return { ...progress, records: { ...progress.records, [keyOf(round.format)]: record }, round: { ...round, finished: true } };
+  return { ...progress, records: { ...progress.records, [keyOf(round.format)]: record }, round: { ...round, pausedMs: undefined, finished: true } };
+}
+
+/** Extra play time one optional ad adds to a finished round. */
+export const SPEED_EXTENSION_MS = 30_000;
+
+export function canExtendSpeedRound(round: SpeedRound | null): round is SpeedRound {
+  return !!round && round.finished && !round.extended;
+}
+
+/**
+ * Reopens a finished round with extra time, once. The finished result is taken back out of
+ * the records so the longer round is counted once when it ends. The extra time does not
+ * start running until `resumeSpeedRound`.
+ */
+export function extendSpeedRound(progress: SpeedProgress): SpeedProgress | null {
+  const { round } = progress;
+  if (!canExtendSpeedRound(round)) return null;
+  const key = keyOf(round.format);
+  const record = speedRecord(progress, round.format);
+  const counted = record.recent.findIndex((result) => result.startedAt === round.startedAt);
+  const reverted: SpeedRecord = {
+    best: round.bestBefore,
+    rounds: Math.max(0, record.rounds - 1),
+    correct: Math.max(0, record.correct - round.score),
+    mistakes: Math.max(0, record.mistakes - round.mistakes),
+    recent: counted < 0 ? record.recent : record.recent.filter((_, index) => index !== counted),
+  };
+  return {
+    ...progress,
+    records: { ...progress.records, [key]: reverted },
+    round: { ...round, finished: false, extended: true, pausedMs: SPEED_EXTENSION_MS },
+  };
+}
+
+/** Starts the clock on a waiting extension. */
+export function resumeSpeedRound(progress: SpeedProgress, now: number): SpeedProgress {
+  const { round } = progress;
+  if (!round || round.finished || round.pausedMs === undefined) return progress;
+  const { pausedMs, ...running } = round;
+  return { ...progress, round: { ...running, startedAt: Math.floor(now) - (round.format.minutes * 60_000 - pausedMs) } };
 }
 
 /** A round can finish while the quit confirmation is open. Keep that result. */
@@ -143,7 +193,9 @@ export function quitSpeedRound(progress: SpeedProgress, startedAt: number, now: 
   const { round } = progress;
   if (!round || round.startedAt !== startedAt || round.finished) return progress;
   const current = finishSpeedRound(progress, now);
-  return current === progress ? { ...progress, round: null } : current;
+  if (current !== progress) return current;
+  // An extended round already had a result, so ending it early keeps the score so far.
+  return round.extended ? closeRound(progress, round) : { ...progress, round: null };
 }
 
 export function startSpeedRound(progress: SpeedProgress, format: SpeedOptions, now: number, random = Math.random): SpeedProgress {
@@ -173,7 +225,7 @@ export function startSpeedRound(progress: SpeedProgress, format: SpeedOptions, n
 export function enterSpeedDigit(progress: SpeedProgress, cell: number, digit: number, now: number): SpeedProgress {
   const current = finishSpeedRound(progress, now);
   const { round } = current;
-  if (!round || round.finished || !Number.isInteger(cell) || !Number.isInteger(digit)
+  if (!round || round.finished || round.pausedMs !== undefined || !Number.isInteger(cell) || !Number.isInteger(digit)
     || round.values[cell] !== 0 || digit < 1 || digit > speedBoardSize(round.format.difficulty)) return current;
   const puzzles = speedCatalog(round.format.difficulty);
   const index = puzzles.findIndex((puzzle) => puzzle.id === round.puzzleId);
@@ -225,7 +277,9 @@ function readRound(value: Partial<SpeedRound> | null): SpeedRound | null {
   if (!puzzle || !Array.isArray(values) || values.length !== puzzle.givens.length || !values.includes(0)) return null;
   if (!puzzle.givens.every((given, cell) => given > 0 ? values[cell] === given : values[cell] === 0 || values[cell] === puzzle.solution[cell])) return null;
   return { format, puzzleId, values, startedAt: value.startedAt, score: value.score, mistakes: value.mistakes,
-    bestBefore: value.bestBefore, finished: value.finished };
+    bestBefore: value.bestBefore, finished: value.finished,
+    ...(value.extended === true && { extended: true }),
+    ...(isCount(value.pausedMs) && value.pausedMs <= SPEED_EXTENSION_MS && !value.finished && { pausedMs: value.pausedMs }) };
 }
 
 /** Keeps usable scores even when a saved board is unavailable or an earlier version saved it. */

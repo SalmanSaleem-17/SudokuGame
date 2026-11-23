@@ -14,6 +14,8 @@ export interface MiniClassicSession {
   index: number;
   progress: AlternateProgress;
   rules: SessionRules;
+  /** Extra mistakes earned from optional ads in a Play Now game with a mistake limit. */
+  extraMistakes?: number;
   /** Present only for an Easy or Medium level attempt. */
   level?: SessionLevel;
   elapsedMs: number;
@@ -35,14 +37,17 @@ export function createMiniLevel(mode: MiniMode, index: number, level: Omit<Sessi
 }
 
 export function miniClassicTimeLimit(session: MiniClassicSession): number | null {
-  if (session.level) return session.level.timeLimitSec > 0 ? session.level.timeLimitSec * 1000 : null;
+  if (session.level) {
+    const { timeLimitSec, extraTimeSec = 0 } = session.level;
+    return timeLimitSec > 0 ? (timeLimitSec + extraTimeSec) * 1000 : null;
+  }
   return session.rules.timerMinutes > 0 ? session.rules.timerMinutes * 60_000 : null;
 }
 
 /** The number of mistakes that ends the game, or null when mistakes never end it. */
 export function miniMistakeLimit(session: MiniClassicSession): number | null {
   if (session.level) return session.level.mistakeLimit + session.level.extraMistakes;
-  return typeof session.rules.mistakes === 'number' ? session.rules.mistakes : null;
+  return typeof session.rules.mistakes === 'number' ? session.rules.mistakes + (session.extraMistakes ?? 0) : null;
 }
 
 export function miniClassicStatus(session: MiniClassicSession): 'playing' | 'solved' | 'mistakes' | 'time' {
@@ -73,6 +78,7 @@ export function readMiniClassic(value: unknown): MiniClassicSession | null {
   if (!saved || saved.version !== 1 || typeof saved.id !== 'string' || !saved.id
       || (saved.mode !== 'mini-4' && saved.mode !== 'mini-6') || !isSessionRules(saved.rules)
       || (saved.level !== undefined && !isSessionLevel(saved.level))
+      || (saved.extraMistakes !== undefined && (!Number.isSafeInteger(saved.extraMistakes) || saved.extraMistakes < 0))
       || !Number.isFinite(saved.elapsedMs) || saved.elapsedMs < 0
       || !Number.isSafeInteger(saved.mistakes) || saved.mistakes < 0
       || !Number.isSafeInteger(saved.startedAt) || saved.startedAt < 0) return null;

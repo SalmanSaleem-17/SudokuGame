@@ -10,16 +10,17 @@ import { DIFFICULTIES, type Difficulty } from '../engine/grader';
 import type { PuzzleRecord } from '../engine/pool';
 import { alternatePuzzleCount, getAlternatePuzzle } from '../game/alternate';
 import { createChallenge, type Challenge, type ChallengeScore } from '../game/challenge';
-import { dailyPuzzleFor } from '../game/daily';
+import { applyBoardContinue, applyMiniContinue } from '../game/continue';
+import { dailyPuzzleFor, dateKeyOf } from '../game/daily';
 import { isWeeklyWeekKey, weeklyProgress, weeklyPuzzleFor, type WeeklyDifficulty } from '../game/events';
 import { HintOffer, evaluateHint, withHintRevealed } from '../game/hintAccess';
 import type { TechniquePackId } from '../game/learning';
-import { LEVEL_COUNT, MAX_EXTRA_MISTAKES, isLevelNumber, isLevelUnlocked, levelProgress, levelPuzzle, levelRules, miniLevelIndex } from '../game/levels';
+import { LEVEL_COUNT, isLevelNumber, isLevelUnlocked, levelProgress, levelPuzzle, levelRules, miniLevelIndex } from '../game/levels';
 import { MINI_CLASSIC_KEY, MINI_LEVEL_KEY, createMiniClassic, createMiniLevel, miniClassicStatus, miniClassicTimeLimit, readMiniClassic, type MiniClassicSession } from '../game/miniClassic';
 import { miniModeForDifficulty, type MiniMode } from '../game/playFormat';
-import { completionXp, rewardsForCompletion, totalXp, type RewardGrant } from '../game/rewards';
+import { DAILY_GIFT_CREDITS, completionXp, rewardsForCompletion, totalXp, type RewardGrant } from '../game/rewards';
 import { DEFAULT_SESSION_RULES, SESSION_SLOTS, Session, SessionRules, SessionSlot, boardKey, createChallengeSession, createLevelSession, createSession, createTechniqueSession, getSessionFailure, getTimeLimitMs } from '../game/session';
-import { DEFAULT_SETTINGS, Settings } from '../game/settings';
+import { DEFAULT_SETTINGS, FREE_BOARD_THEMES, Settings, isBoardTheme, isThemeAvailable, type BoardTheme } from '../game/settings';
 import { isStreakList, repairableDay, streakDays } from '../game/streak';
 import { openExpoDriver } from '../storage/expoDriver';
 import { BackupData, Completion, InsufficientCreditsError, Repository } from '../storage/repository';
@@ -47,7 +48,11 @@ export interface AppState {
   streakDays: string[];
   streakRepairs: string[];
   /** What the most recently finished game earned, shown on its results screen. */
-  lastRewards: { sessionId: string; grants: RewardGrant[]; xp: number } | null;
+  lastRewards: { sessionId: string; grants: RewardGrant[]; xp: number; doubled?: boolean } | null;
+  /** Board themes opened with an ad. The free themes are not listed. */
+  unlockedThemes: BoardTheme[];
+  /** The local day whose daily gift has been claimed, when that is known. */
+  giftDay: string | null;
   ads: AdProviderState;
   adsSimulated: boolean;
   reward: RewardState;
@@ -73,6 +78,8 @@ export const appStore = createStore<AppState>({
   streakDays: [],
   streakRepairs: [],
   lastRewards: null,
+  unlockedThemes: [],
+  giftDay: null,
   ads: UNAVAILABLE_STATE,
   adsSimulated: false,
   reward: { phase: 'idle', lastOutcome: null },
@@ -109,6 +116,8 @@ export function initApp(): Promise<void> {
 }
 
 const STREAK_REPAIRS_KEY = 'streak-repairs';
+const THEME_GRANT = 'theme:';
+const giftGrantId = (dateKey: string) => `gift:${dateKey}`;
 
 /** Reads everything saved on the device into the store. Also used after a reset or a restore. */
 async function loadProgress(store: Repository): Promise<void> {
@@ -133,13 +142,22 @@ async function loadProgress(store: Repository): Promise<void> {
   };
   const miniClassic = await loadMini(MINI_CLASSIC_KEY);
   const miniLevel = await loadMini(MINI_LEVEL_KEY);
-  const [settings, credits, completions, repairs] = await Promise.all([
+  const today = dateKeyOf(new Date());
+  const [settings, credits, completions, repairs, themeGrants, giftGrants] = await Promise.all([
     store.loadSettings(),
     store.getCredits(),
     store.listCompletions(),
     store.loadModeProgress(STREAK_REPAIRS_KEY),
+    store.listGrantIds(THEME_GRANT),
+    store.listGrantIds(giftGrantId(today)),
   ]);
   const streakRepairs = isStreakList(repairs) ? repairs : [];
+  const unlockedThemes = themeGrants.map((id) => id.slice(THEME_GRANT.length)).filter(isBoardTheme);
+  // A theme chosen before themes had locks, or restored from a backup, stays the player's.
+  if (!isThemeAvailable(settings.boardTheme, unlockedThemes, DEFAULT_SETTINGS.boardTheme)) {
+    await store.grantRewards([{ id: THEME_GRANT + settings.boardTheme, credits: 0 }], Date.now());
+    unlockedThemes.push(settings.boardTheme);
+  }
   appStore.setState({
     ready: true,
     loadError: null,
@@ -156,6 +174,8 @@ async function loadProgress(store: Repository): Promise<void> {
     streakDays: streakDays(completions, streakRepairs),
     streakRepairs,
     lastRewards: null,
+    unlockedThemes,
+    giftDay: giftGrants.length > 0 ? today : null,
   });
   for (const sessionId of recovered) await settleRewards(sessionId);
 }
@@ -214,7 +234,10 @@ function startAds() {
 /* -------------------------------- settings -------------------------------- */
 
 export function updateSettings(patch: Partial<Settings>) {
-  const settings = { ...appStore.getState().settings, ...patch };
+  const { settings: current, unlockedThemes } = appStore.getState();
+  // A locked board theme cannot be selected; it opens through `watchAdToUnlockTheme`.
+  if (patch.boardTheme && !isThemeAvailable(patch.boardTheme, unlockedThemes, current.boardTheme)) return;
+  const settings = { ...current, ...patch };
   appStore.setState({ settings });
   repo?.saveSettings(settings).catch(report('saveSettings'));
 }
@@ -622,38 +645,107 @@ function watchAdFor(reward: AdReward): Promise<RewardOutcome> {
   return rewards.watchAd(reward);
 }
 
-/** True when the level on screen ended on mistakes and can still be continued with an ad. */
-export function canContinueLevel(session: Session | null): boolean {
-  return !!session?.level && !session.completed && getSessionFailure(session) === 'mistakes' &&
-    session.level.extraMistakes < MAX_EXTRA_MISTAKES;
-}
-
-/** The same check for an Easy or Medium level played on a small board. */
-export function canContinueMiniLevel(session: MiniClassicSession | null): boolean {
-  return !!session?.level && miniClassicStatus(session) === 'mistakes' && session.level.extraMistakes < MAX_EXTRA_MISTAKES;
-}
-
 /**
- * One optional ad adds one mistake to the level attempt with this id, which lets play
- * continue. The extra mistake is saved with the ad's grant id, so it is applied exactly once.
+ * One optional ad lets the ended game with this id continue: one more mistake after the
+ * mistake limit, or more time after a level's clock ran out (see `game/continue`). The
+ * change is saved together with the ad's grant id, so it is applied exactly once.
  */
-export function watchAdForExtraMistake(sessionId: string): Promise<RewardOutcome> {
+export function watchAdToContinue(sessionId: string): Promise<RewardOutcome> {
   return watchAdFor({
     credits: 0,
     grant: async (grantId) => {
       if (!repo) throw new Error('Saved data is unavailable.');
-      const { sessions, miniLevel } = appStore.getState();
-      if (miniLevel?.id === sessionId && miniLevel.level && canContinueMiniLevel(miniLevel)) {
-        const next: MiniClassicSession = { ...miniLevel, level: { ...miniLevel.level, extraMistakes: miniLevel.level.extraMistakes + 1 } };
-        const result = await repo.grantModeReward(grantId, MINI_LEVEL_KEY, next, Date.now());
-        if (result.granted && appStore.getState().miniLevel?.id === next.id) appStore.setState({ miniLevel: next });
+      const mini = findMini(sessionId);
+      if (mini) {
+        const next = applyMiniContinue(mini);
+        if (!next) throw new Error('Nothing to continue');
+        const result = await repo.grantModeReward(grantId, miniSaveKey(next), next, Date.now());
+        if (result.granted && findMini(sessionId)) setMini(next, !!next.level);
         return result;
       }
-      const current = sessions.level;
-      if (current?.id !== sessionId || !current.level || !canContinueLevel(current)) throw new Error('No level to continue');
-      const next: Session = { ...current, level: { ...current.level, extraMistakes: current.level.extraMistakes + 1 } };
+      const { sessions } = appStore.getState();
+      const current = SESSION_SLOTS.map((slot) => sessions[slot]).find((session) => session?.id === sessionId);
+      const next = current ? applyBoardContinue(current) : null;
+      if (!next) throw new Error('Nothing to continue');
       const result = await repo.grantSessionReward(grantId, next, Date.now());
-      if (result.granted && appStore.getState().sessions.level?.id === next.id) setSession('level', next);
+      if (result.granted && appStore.getState().sessions[next.slot]?.id === next.id) setSession(next.slot, next);
+      return result;
+    },
+  });
+}
+
+/** Hint credits a finished game paid, which one optional ad can pay a second time. */
+export function doubleableCredits(sessionId: string): number {
+  const last = appStore.getState().lastRewards;
+  if (last?.sessionId !== sessionId || last.doubled) return 0;
+  return last.grants.reduce((sum, grant) => sum + grant.credits, 0);
+}
+
+/** One optional ad pays a finished game's hint credits again. Once per game. */
+export function watchAdToDoubleRewards(sessionId: string): Promise<RewardOutcome> {
+  const credits = doubleableCredits(sessionId);
+  if (credits <= 0) return Promise.resolve({ kind: 'failed', reason: 'unsupported' });
+  return watchAdFor({
+    credits,
+    grant: async () => {
+      if (!repo) throw new Error('Saved data is unavailable.');
+      // The id belongs to the game, not the ad, so a game can never be doubled twice.
+      const result = await repo.grantReward(`double:${sessionId}`, credits, Date.now());
+      appStore.setState((state) => (state.lastRewards?.sessionId === sessionId ? { lastRewards: { ...state.lastRewards, doubled: true } } : {}));
+      return result;
+    },
+  });
+}
+
+/** The daily gift can be claimed when today's has not been. */
+export function isDailyGiftReady(giftDay: string | null, now = new Date()): boolean {
+  return giftDay !== dateKeyOf(now);
+}
+
+/** One optional ad a day pays a few hint credits. */
+export function watchAdForDailyGift(): Promise<RewardOutcome> {
+  const dateKey = dateKeyOf(new Date());
+  return watchAdFor({
+    credits: DAILY_GIFT_CREDITS,
+    grant: async () => {
+      if (!repo) throw new Error('Saved data is unavailable.');
+      // One grant id per local day: a second ad on the same day cannot pay again.
+      const result = await repo.grantReward(giftGrantId(dateKey), DAILY_GIFT_CREDITS, Date.now());
+      appStore.setState({ giftDay: dateKey });
+      if (!result.granted) throw new Error('Gift already claimed');
+      return result;
+    },
+  });
+}
+
+/** One optional ad opens a board theme for good and selects it. */
+export function watchAdToUnlockTheme(theme: BoardTheme): Promise<RewardOutcome> {
+  if (FREE_BOARD_THEMES.includes(theme)) return Promise.resolve({ kind: 'failed', reason: 'unsupported' });
+  return watchAdFor({
+    credits: 0,
+    grant: async () => {
+      if (!repo) throw new Error('Saved data is unavailable.');
+      const { balance } = await repo.grantRewards([{ id: THEME_GRANT + theme, credits: 0 }], Date.now());
+      appStore.setState((state) => ({ unlockedThemes: state.unlockedThemes.includes(theme) ? state.unlockedThemes : [...state.unlockedThemes, theme] }));
+      updateSettings({ boardTheme: theme });
+      return { granted: true, balance };
+    },
+  });
+}
+
+/**
+ * One optional ad applies a change to a mode's saved progress (a Speed Round extension).
+ * `build` returns the new progress, or null when the reward no longer applies; the new
+ * progress is saved together with the ad's grant id and then handed to `onGranted`.
+ */
+export function watchAdForModeProgress<T>(key: string, build: () => T | null, onGranted: (next: T) => void): Promise<RewardOutcome> {
+  return watchAdFor({
+    credits: 0,
+    grant: async (grantId) => {
+      const next = build();
+      if (!repo || next === null) throw new Error('Nothing to change');
+      const result = await repo.grantModeReward(grantId, key, next, Date.now());
+      if (result.granted) onGranted(next);
       return result;
     },
   });

@@ -88,16 +88,16 @@ export default function ChallengeScreen() {
     setActionError('');
     try {
       await Share.share({
-        title: 'Sudoku Studio challenge',
+        title: 'Sudoku Vault challenge',
         message: [
-          'Try my Sudoku Studio challenge',
+          'Try my Sudoku Vault challenge',
           `${DIFFICULTY_NAMES[selected.puzzle.difficulty]} · ${describeChallengeRules(selected.rules)}`,
           '',
           selected.code,
           '',
-          'Open Challenge a Friend in Sudoku Studio and paste this message.',
+          'Open Challenge a Friend in Sudoku Vault and paste this message.',
           '',
-          `Get Sudoku Studio: ${STORE_URL}`,
+          `Get Sudoku Vault: ${STORE_URL}`,
         ].join('\n'),
       });
     } catch {

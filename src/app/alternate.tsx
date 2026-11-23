@@ -11,12 +11,15 @@ import {
 } from '../game/alternate';
 import type { AlternateProgress } from '../game/alternate';
 import { alternateConflicts } from '../game/alternateRules';
+import { miniContinueOffer } from '../game/continue';
 import type { AlternateMode } from '../game/alternateRules';
 import { enterMiniClassic, miniClassicStatus, miniClassicTimeLimit, miniMistakeLimit, undoMiniClassic, type MiniClassicSession } from '../game/miniClassic';
 import { PLAY_BOARD_SIZES, type MiniMode } from '../game/playFormat';
-import { appStore, canContinueMiniLevel, completeMiniClassic, flushMiniClassic, loadModeProgress, miniClassicClock, mutateMiniClassic, quitMiniClassic, saveModeProgress, startMiniClassic, startMiniLevel } from '../state/app';
+import { isVariantMode } from '../game/variantGuides';
+import { appStore, completeMiniClassic, flushMiniClassic, loadModeProgress, miniClassicClock, mutateMiniClassic, quitMiniClassic, saveModeProgress, startMiniClassic, startMiniLevel } from '../state/app';
 import { formatTime } from '../state/clock';
 import { useStore } from '../state/store';
+import { ContinueWithAd } from '../ui/AdOffer';
 import { AlternateBoard } from '../ui/AlternateBoard';
 import { Keypad } from '../ui/Keypad';
 import { LevelFailure } from '../ui/LevelFailure';
@@ -64,22 +67,34 @@ function AlternatePicker({ variants }: { variants: boolean }) {
           const detail = ALTERNATE_MODES[mode];
           const visual = modeVisuals[mode];
           return (
-            <Pressable
-              key={mode}
-              accessibilityRole="button"
-              accessibilityLabel={detail.name}
-              accessibilityHint={detail.description}
-              onPress={() => router.push({ pathname: '/alternate', params: { mode, source: 'picker' } })}
-              style={({ pressed }) => [styles.choice, { borderColor: visual.accent }, pressed && styles.pressed]}>
-              <View style={[styles.choiceIcon, { backgroundColor: visual.accent }]}>
-                <Ionicons name={visual.icon} size={26} color={visual.tint} />
-              </View>
-              <View style={styles.choiceText}>
-                <Text style={styles.choiceTitle}>{detail.name}</Text>
-                <Text style={type.dim}>{detail.description}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={19} color={visual.tint} />
-            </Pressable>
+            // The card holds two controls side by side: the game itself, and its how-to-play guide.
+            <View key={mode} style={[styles.choice, { borderColor: visual.accent }]}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={detail.name}
+                accessibilityHint={detail.description}
+                onPress={() => router.push({ pathname: '/alternate', params: { mode, source: 'picker' } })}
+                style={({ pressed }) => [styles.choiceMain, pressed && styles.pressed]}>
+                <View style={[styles.choiceIcon, { backgroundColor: visual.accent }]}>
+                  <Ionicons name={visual.icon} size={26} color={visual.tint} />
+                </View>
+                <View style={styles.choiceText}>
+                  <Text style={styles.choiceTitle}>{detail.name}</Text>
+                  <Text style={type.dim}>{detail.description}</Text>
+                </View>
+                {!isVariantMode(mode) && <Ionicons name="chevron-forward" size={19} color={visual.tint} />}
+              </Pressable>
+              {isVariantMode(mode) && (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`How to play ${detail.name}`}
+                  onPress={() => router.push({ pathname: '/how-to-play', params: { variant: mode } })}
+                  style={({ pressed }) => [styles.howTo, { borderLeftColor: visual.accent }, pressed && styles.pressed]}>
+                  <Ionicons name="help-circle-outline" size={24} color={visual.tint} />
+                  <Text style={[styles.howToLabel, { color: visual.tint }]}>How to play</Text>
+                </Pressable>
+              )}
+            </View>
           );
         })}
       </ScrollView>
@@ -243,6 +258,22 @@ function MiniClassicMissing({ level = false }: { level?: boolean }) {
   );
 }
 
+/** Actions after a Play Now small-board game ends early. One optional ad adds one more mistake. */
+function PlayNowFailure({ session, restarting, onRetry }: { session: MiniClassicSession; restarting: boolean; onRetry: () => void }) {
+  const canRequestAds = useStore(appStore, (state) => state.ads.canRequestAds);
+  const adBusy = useStore(appStore, (state) => state.reward.phase !== 'idle');
+  const offer = miniContinueOffer(session);
+  const busy = restarting || adBusy;
+  return (
+    <>
+      {offer && <ContinueWithAd sessionId={session.id} offer={offer} scope="game" disabled={restarting} />}
+      <Text style={type.dim}>Try this puzzle again with the same rules or choose a new game.</Text>
+      <Button variant={offer && canRequestAds ? 'secondary' : 'primary'} label="Try again" icon="refresh-outline" disabled={busy} onPress={onRetry} />
+      <Button variant="ghost" label="Game Setup" disabled={busy} onPress={() => router.replace('/new-game')} />
+    </>
+  );
+}
+
 /** The small-board game in play: the Play Now mini, or an Easy or Medium level attempt. */
 const readMini = (level: boolean) => (level ? appStore.getState().miniLevel : appStore.getState().miniClassic);
 
@@ -254,6 +285,7 @@ function MiniClassicGame({ mode, level, fromSavedGames }: { mode: MiniMode; leve
   });
   const focused = useScreenFocused();
   const appActive = useAppActive();
+  const adIdle = useStore(appStore, (state) => state.reward.phase === 'idle');
   const [pausedId, setPausedId] = useState<string | null>(null);
   const [restarting, setRestarting] = useState(false);
   const [restartFailed, setRestartFailed] = useState(false);
@@ -268,7 +300,8 @@ function MiniClassicGame({ mode, level, fromSavedGames }: { mode: MiniMode; leve
   const id = session?.id;
   const phase = session ? miniClassicStatus(session) : null;
   const paused = !!id && pausedId === id;
-  const ticking = !!id && phase === 'playing' && focused && appActive && !paused && !restarting && !quitting;
+  // The clock waits for an ad to close, so time or a mistake earned from it starts fresh.
+  const ticking = !!id && phase === 'playing' && focused && appActive && adIdle && !paused && !restarting && !quitting;
   const timeLimit = session ? miniClassicTimeLimit(session) : null;
 
   useEffect(() => {
@@ -555,6 +588,10 @@ function AlternatePlay({ mode, round, onEnter, onUndo, onRestart, onQuit, quitti
         {rulesOpen && (
           <Card style={[styles.notice, { backgroundColor: visual.accent }]}>
             <Text style={type.body}>{detail.rules}</Text>
+            {isVariantMode(mode) && (
+              <Button variant="ghost" label="How to play" icon="help-circle-outline"
+                onPress={() => router.push({ pathname: '/how-to-play', params: { variant: mode } })} />
+            )}
           </Card>
         )}
         {restartOpen && !finished && !failed && (
@@ -596,18 +633,13 @@ function AlternatePlay({ mode, round, onEnter, onUndo, onRestart, onQuit, quitti
               <LevelFailure
                 sessionId={classic.session.id}
                 byMistakes={classic.phase === 'mistakes'}
-                extraMistakes={classic.session.level.extraMistakes}
-                canContinue={canContinueMiniLevel(classic.session)}
+                offer={miniContinueOffer(classic.session)}
                 disabled={classic.restarting}
                 onRetry={() => resetControls(onRestart)}
                 onLevels={() => router.dismissTo({ pathname: '/levels', params: { difficulty: classic.session.difficulty } })}
               />
             ) : (
-              <>
-                <Text style={type.dim}>Try this puzzle again with the same rules or choose a new game.</Text>
-                <Button variant="primary" label="Try again" icon="refresh-outline" disabled={classic.restarting} onPress={() => resetControls(onRestart)} />
-                <Button variant="ghost" label="Game Setup" disabled={classic.restarting} onPress={() => router.replace('/new-game')} />
-              </>
+              <PlayNowFailure session={classic.session} restarting={classic.restarting} onRetry={() => resetControls(onRestart)} />
             )}
           </Card>
         ) : finished && classic ? (
@@ -688,6 +720,12 @@ const styles = StyleSheet.create({
     padding: spacing.md, minHeight: 84, gap: spacing.md, flexDirection: 'row',
     alignItems: 'center', borderRadius: radius.lg, borderWidth: 1.5, backgroundColor: colors.surface,
   },
+  choiceMain: { flex: 1, minHeight: TOUCH, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  howTo: {
+    width: 66, minHeight: TOUCH + 8, alignSelf: 'stretch', alignItems: 'center', justifyContent: 'center', gap: 2,
+    paddingLeft: spacing.sm, borderLeftWidth: 1,
+  },
+  howToLabel: { fontSize: 11, lineHeight: 14, fontWeight: '800', textAlign: 'center' },
   choiceIcon: { width: 52, height: 52, borderRadius: radius.md, justifyContent: 'center', alignItems: 'center' },
   choiceText: { flex: 1, gap: spacing.xs },
   choiceTitle: { fontSize: 18, fontWeight: '800', color: colors.text },

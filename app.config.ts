@@ -92,7 +92,10 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   const ads = resolveAds();
   const expo: ExpoConfig = {
     ...config,
-    name: 'Sudoku Studio',
+    // The name under the icon. The store title is "Sudoku Vault: Logical Puzzles", set in the Play Console.
+    name: 'Sudoku Vault',
+    // The slug, scheme and package are from the game's first name. They identify the EAS project and the
+    // published app, so they stay as they are.
     slug: 'sudoku-studio',
     owner: 'salmansaleem',
     scheme: 'sudokustudio',

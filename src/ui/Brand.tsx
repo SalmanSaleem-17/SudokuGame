@@ -7,7 +7,7 @@ export const WORDMARK_ASPECT_RATIO = 1610 / 977;
 
 export function BrandTitle({ compact = false }: { compact?: boolean }) {
   return (
-    <View style={styles.brand} accessible accessibilityRole="header" accessibilityLabel="Sudoku Studio">
+    <View style={styles.brand} accessible accessibilityRole="header" accessibilityLabel="Sudoku Vault">
       <Text style={[styles.wordmark, compact && styles.compact]}>
         Sud<Text style={styles.gold}>oku</Text>
       </Text>

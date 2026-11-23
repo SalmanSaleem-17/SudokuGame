@@ -8,10 +8,12 @@ import { STORE_URL } from '../game/links';
 import { REMINDER_HOURS } from '../game/settings';
 import { pickBackup, shareBackup } from '../platform/backup';
 import { requestReminderPermission, syncReminder } from '../platform/reminders';
-import { appStore, exportBackup, importBackup, resetProgress, showPrivacyOptions, updateSettings } from '../state/app';
+import { DAILY_GIFT_CREDITS } from '../game/rewards';
+import { appStore, exportBackup, importBackup, isDailyGiftReady, resetProgress, showPrivacyOptions, updateSettings, watchAdForDailyGift } from '../state/app';
 import { useStore } from '../state/store';
 import { InvalidBackupError } from '../storage/repository';
 import { BOARD_PALETTES, BOARD_THEME_NAMES } from '../ui/boardTheme';
+import { AdOffer } from '../ui/AdOffer';
 import { Card, type IconName, Screen, ToggleRow } from '../ui/controls';
 import { colors, radius, spacing, TOUCH, type } from '../ui/theme';
 
@@ -28,7 +30,7 @@ const palettes = {
 
 /** Opens the system share sheet with a link to the game on Google Play. */
 function shareGame() {
-  void Share.share({ title: 'Sudoku Studio', message: `Play Sudoku Studio with me: ${STORE_URL}` }).catch(() => undefined);
+  void Share.share({ title: 'Sudoku Vault', message: `Play Sudoku Vault with me: ${STORE_URL}` }).catch(() => undefined);
 }
 
 function openUrl(url: string) {
@@ -51,7 +53,7 @@ export default function SettingsScreen() {
   const setReminder = async (reminder: boolean, reminderHour = settings.reminderHour) => {
     setReminderNote(null);
     if (reminder && !(await requestReminderPermission())) {
-      setReminderNote('Notifications are turned off for Sudoku Studio. Allow them in your phone settings to use the reminder.');
+      setReminderNote('Notifications are turned off for Sudoku Vault. Allow them in your phone settings to use the reminder.');
       updateSettings({ reminder: false });
       return;
     }
@@ -74,14 +76,14 @@ export default function SettingsScreen() {
 
   const exportData = () => run(async () => {
     await shareBackup(await exportBackup());
-    return 'Backup file created. Keep it somewhere safe; hint credits are not included.';
+    return 'Backup file created. Keep it somewhere safe; hint credits and unlocked themes are not included.';
   });
 
   const restoreData = () => run(async () => {
     const data = await pickBackup();
     if (data === null) return null;
     return new Promise<string | null>((resolve, reject) => {
-      Alert.alert('Restore this backup?', 'Your current games, results and settings on this device will be replaced. Hint credits stay as they are.', [
+      Alert.alert('Restore this backup?', 'Your current games, results and settings on this device will be replaced. Hint credits and unlocked themes stay as they are.', [
         { text: 'Cancel', style: 'cancel', onPress: () => resolve(null) },
         { text: 'Restore', style: 'destructive', onPress: () => importBackup(data).then(() => resolve('Backup restored.'), reject) },
       ], { cancelable: false });
@@ -89,7 +91,7 @@ export default function SettingsScreen() {
   });
 
   const confirmReset = () => {
-    Alert.alert('Reset all progress?', 'Saved games, results, statistics, level stars and achievements will be erased. Hint credits and settings are kept. This cannot be undone.', [
+    Alert.alert('Reset all progress?', 'Saved games, results, statistics, level stars and achievements will be erased. Hint credits, unlocked themes and settings are kept. This cannot be undone.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Reset', style: 'destructive', onPress: () => void run(async () => { await resetProgress(); return 'Progress reset.'; }) },
     ]);
@@ -195,7 +197,7 @@ export default function SettingsScreen() {
         <SettingsGroup title="About and privacy" palette={palettes.about} onLayout={openAbout ? layoutAbout : undefined}>
           <ActionRow label="How to Play" icon="book-outline" onPress={() => router.push('/how-to-play')} />
           <Divider />
-          <ActionRow label="Share Sudoku Studio" icon="share-social-outline" onPress={shareGame} />
+          <ActionRow label="Share Sudoku Vault" icon="share-social-outline" onPress={shareGame} />
           <Divider />
           {privacyOptionsRequired && (
             <>
@@ -243,6 +245,7 @@ function SettingsGroup({ title, palette, children, onLayout }: {
 
 function HintCredits({ credits }: { credits: number }) {
   const [expanded, setExpanded] = useState(false);
+  const giftDay = useStore(appStore, (s) => s.giftDay);
 
   return (
     <Card style={styles.creditCard}>
@@ -266,6 +269,16 @@ function HintCredits({ credits }: { credits: number }) {
       {expanded && (
         <View style={styles.creditDetails}>
           <Text style={type.dim}>Finish an optional ad in the hint panel to earn {CREDITS_PER_REWARD} credits.</Text>
+          {isDailyGiftReady(giftDay) ? (
+            <AdOffer
+              label={`Daily gift: +${DAILY_GIFT_CREDITS} credits`}
+              detail="One optional ad, once a day"
+              lost="no credits were added"
+              onWatch={watchAdForDailyGift}
+            />
+          ) : (
+            <Text style={type.dim}>Today’s daily gift is claimed. A new one is ready tomorrow.</Text>
+          )}
           <Text style={type.dim}>Credits stay on this device. Clearing app data or uninstalling removes them.</Text>
         </View>
       )}

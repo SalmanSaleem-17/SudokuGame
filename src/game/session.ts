@@ -35,6 +35,8 @@ export interface SessionLevel {
   mistakeLimit: number;
   /** Extra mistakes earned from optional ads during this attempt. */
   extraMistakes: number;
+  /** Extra seconds earned from optional ads during this attempt. Absent until the first one. */
+  extraTimeSec?: number;
 }
 
 /** How many colours a player can mark a cell with; 0 means unmarked. */
@@ -74,6 +76,8 @@ export interface Session {
   /** Older saves have no redo history or custom rules. */
   redo?: UndoEntry[];
   rules?: SessionRules;
+  /** Extra mistakes earned from optional ads in a Play Now game with a mistake limit. */
+  extraMistakes?: number;
   /** Present only for the Levels mode. */
   level?: SessionLevel;
   /** Player colour marks per cell (0 to TINT_COUNT). Absent until the first mark. */
@@ -146,11 +150,14 @@ export function getSessionRules(session: Session): Readonly<SessionRules> {
 export function getMistakeLimit(session: Session): number | null {
   if (session.slot === 'level' && session.level) return session.level.mistakeLimit + session.level.extraMistakes;
   const { mistakes } = getSessionRules(session);
-  return typeof mistakes === 'number' ? mistakes : null;
+  return typeof mistakes === 'number' ? mistakes + (session.extraMistakes ?? 0) : null;
 }
 
 export function getTimeLimitMs(session: Session): number | null {
-  if (session.slot === 'level' && session.level) return session.level.timeLimitSec > 0 ? session.level.timeLimitSec * 1000 : null;
+  if (session.slot === 'level' && session.level) {
+    const { timeLimitSec, extraTimeSec = 0 } = session.level;
+    return timeLimitSec > 0 ? (timeLimitSec + extraTimeSec) * 1000 : null;
+  }
   const { timerMinutes } = getSessionRules(session);
   return timerMinutes === 0 ? null : timerMinutes * 60_000;
 }
@@ -293,7 +300,8 @@ export function digitCounts(values: readonly number[]): number[] {
 export function isSessionLevel(value: unknown): value is SessionLevel {
   const level = value as SessionLevel | null;
   const whole = (n: unknown, min: number) => typeof n === 'number' && Number.isInteger(n) && n >= min;
-  return !!level && whole(level.number, 1) && whole(level.timeLimitSec, 0) && whole(level.mistakeLimit, 1) && whole(level.extraMistakes, 0);
+  return !!level && whole(level.number, 1) && whole(level.timeLimitSec, 0) && whole(level.mistakeLimit, 1) && whole(level.extraMistakes, 0) &&
+    (level.extraTimeSec === undefined || whole(level.extraTimeSec, 0));
 }
 
 /** Guards against loading a corrupt or incompatible saved session. */
@@ -324,6 +332,7 @@ export function isValidSession(value: unknown): value is Session {
     validHistory(s.undo) &&
     (s.redo === undefined || validHistory(s.redo)) &&
     (s.rules === undefined || isSessionRules(s.rules)) &&
+    (s.extraMistakes === undefined || (Number.isInteger(s.extraMistakes) && s.extraMistakes >= 0)) &&
     (s.mistakeReview === undefined || isMistakeReview(s.mistakeReview)) &&
     Number.isFinite(s.elapsedMs) && s.elapsedMs >= 0
   );

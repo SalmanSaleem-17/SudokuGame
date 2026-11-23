@@ -56,7 +56,7 @@ export async function syncReminder(enabled: boolean, hour: number): Promise<void
       });
     }
     await api.scheduleNotificationAsync({
-      content: { title: 'Sudoku Studio', body: 'Today’s Daily Puzzle is ready.' },
+      content: { title: 'Sudoku Vault', body: 'Today’s Daily Puzzle is ready.' },
       trigger: { type: api.SchedulableTriggerInputTypes.DAILY, hour, minute: 0, channelId: CHANNEL },
     });
   } catch {

@@ -1,8 +1,8 @@
-# Google Play store listing: Sudoku Studio
+# Google Play store listing: Sudoku Vault: Logical Puzzles
 
 ## App name (30 max)
 
-Sudoku Studio
+Sudoku Vault: Logical Puzzles
 
 ## Short description (80 max)
 
@@ -10,14 +10,14 @@ Offline Sudoku with 120 levels, daily puzzles, step-by-step hints and themes.
 
 ## Full description (4000 max)
 
-Sudoku Studio is a clean Sudoku game that works completely offline. Open it and play. There is no account to create and nothing to sign in to.
+Sudoku Vault is a clean Sudoku game that works completely offline. Open it and play. There is no account to create and nothing to sign in to.
 
 120 LEVELS TO CLIMB
 • 30 levels each for Easy, Medium, Hard and Expert
 • Easy levels on 4x4 boards, Medium on 6x6, Hard and Expert on full 9x9 boards
 • Beat the clock: up to 3 stars per level for fast solving
 • Every difficulty has its own time limit and mistake limit
-• Out of mistakes? An optional ad adds one more so you can keep going
+• Out of mistakes or time? An optional ad lets you keep going
 
 PUZZLES FOR EVERY MOOD
 • Play Now: quick 4x4 and 6x6 boards, or full 9x9 Hard and Expert puzzles
@@ -40,12 +40,13 @@ HINTS THAT TEACH
 
 REWARDS FOR PLAYING
 • Earn hint credits from daily puzzles, streaks, level milestones and badges
+• A daily gift of hint credits, and double the credits from a win, each with one optional ad
 • 18 badges to unlock, and a player level that grows with every puzzle you solve
 
 COMFORTABLE TO PLAY
 • Pencil notes, one-tap fill of all notes, and colour marks for cells
 • Smart notes, undo and redo, and number-first entry
-• 12 board themes, including light and high-contrast boards
+• 12 board themes: 3 free, including light and high-contrast boards, and 9 more to unlock with one optional ad each
 • Optional timer and mistake feedback
 • Your game is saved automatically, so you can stop and resume any time
 
@@ -57,7 +58,7 @@ FAIR AND PRIVATE
 
 Challenge a Friend lets you send a puzzle code through any messaging app and compare times, with no account and no server.
 
-Sudoku Studio is free. Hint credits are stored only on your device and are lost if you uninstall the app.
+Sudoku Vault is free. Hint credits are stored only on your device and are lost if you uninstall the app.
 
 Questions or feedback: contact@salmansaleem.dev
 

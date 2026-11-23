@@ -11,10 +11,11 @@ import { DRILL_INFO } from '../game/drills';
 import { TECHNIQUE_PACKS } from '../game/learning';
 import { LEVEL_COUNT } from '../game/levels';
 import { PLAY_BOARD_SIZES, isMiniResult } from '../game/playFormat';
-import { appStore, getCompletion, openLevel } from '../state/app';
+import { appStore, getCompletion, openLevel, watchAdToDoubleRewards } from '../state/app';
 import { formatTime } from '../state/clock';
 import { useStore } from '../state/store';
 import type { Completion } from '../storage/repository';
+import { AdOffer } from '../ui/AdOffer';
 import { ChallengeResults, formatChallengeTime } from '../ui/ChallengeResults';
 import { Button, Card, type IconName, Screen } from '../ui/controls';
 import { Motion } from '../ui/Motion';
@@ -149,7 +150,19 @@ export default function ResultsScreen() {
                 <Ionicons name="bulb" size={15} color={colors.accent} />
               </View>
             ))}
-            {credits > 0 && <Text style={type.dim}>{credits} hint {credits === 1 ? 'credit' : 'credits'} added.</Text>}
+            {credits > 0 && (
+              <Text style={type.dim} accessibilityLiveRegion="polite">
+                {rewards.doubled ? `Doubled: ${credits * 2} hint credits added.` : `${credits} hint ${credits === 1 ? 'credit' : 'credits'} added.`}
+              </Text>
+            )}
+            {credits > 0 && !rewards.doubled && (
+              <AdOffer
+                label={`Watch ad: +${credits} more`}
+                detail="Doubles the hint credits from this game"
+                lost="the credits were not doubled"
+                onWatch={() => watchAdToDoubleRewards(completion.sessionId)}
+              />
+            )}
           </Card>
         )}
 

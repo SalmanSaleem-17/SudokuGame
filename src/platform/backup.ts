@@ -10,11 +10,11 @@ import type { BackupData } from '../storage/repository';
 /** Writes the backup to a temporary file and opens the system share sheet for it. */
 export async function shareBackup(data: BackupData): Promise<void> {
   const stamp = new Date(data.exportedAt).toISOString().slice(0, 10);
-  const file = new File(Paths.cache, `sudoku-studio-backup-${stamp}.json`);
+  const file = new File(Paths.cache, `sudoku-vault-backup-${stamp}.json`);
   if (file.exists) file.delete();
   file.create();
   file.write(JSON.stringify(data));
-  await Sharing.shareAsync(file.uri, { mimeType: 'application/json', dialogTitle: 'Save Sudoku Studio backup' });
+  await Sharing.shareAsync(file.uri, { mimeType: 'application/json', dialogTitle: 'Save Sudoku Vault backup' });
 }
 
 /** Lets the player pick a backup file. Returns null if they cancel. */

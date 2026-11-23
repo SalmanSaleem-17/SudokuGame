@@ -1,4 +1,4 @@
-# Sudoku Studio
+# Sudoku Vault: Logical Puzzles
 
 Offline-first Sudoku for Android, built with Expo SDK 58, React Native 0.88 and TypeScript.
 No accounts, no backend. The only feature that uses the network is the optional rewarded ad.
@@ -70,9 +70,10 @@ All automated, in Node, against a real SQLite database (the same SQL the app run
 - Daily determinism, midnight rollover, a puzzle staying with its start date, one completion per session and per date
 - Earned reward, early dismissal, no fill, offline, load and show failures, timeout, duplicate callbacks, reward arriving after close, rapid taps, consent ineligibility, spending a credit offline after earning it online
 - Ad configuration: test IDs by default, build failure for missing, malformed or test IDs in production
-- Levels: 30 distinct puzzles per difficulty on the right board size, each with one solution; time limits and time-based stars; unlock order; ending on mistakes or time; continuing with one extra mistake per ad
+- Levels: 30 distinct puzzles per difficulty on the right board size, each with one solution; time limits and time-based stars; unlock order; ending on mistakes or time; continuing with one extra mistake or extra time per ad
 - Rewards: experience and player levels, one-time credit rewards (daily, streak, level milestones, badges), never paid twice
 - Streaks: on-time dailies only, repair of yesterday through one ad, applied once per ad
+- Ad rewards: extra time and extra mistakes with their caps, on both board sizes and never for daily, weekly or challenge games; the Speed Round extension counted once; the daily gift once per day; doubling a game's credits once; board theme unlocks that survive a reset
 - Auto-filled notes, colour marks, reset (keeps credits and paid rewards) and backup export and restore (credits excluded)
 
 ### Not verified on a device
@@ -102,8 +103,11 @@ IDs come from environment variables, read in one place (`app.config.ts`); see `.
 - For EAS builds, set the production values as EAS environment variables for the production environment rather than committing them.
 
 Reward rules, as implemented: one free hint per 9×9 game; one earned ad reward adds exactly 2 credits; 1 credit buys one hint.
-The same rewarded unit also powers two other opt-in offers: one extra mistake in a Levels stage (up to 2 per attempt) and
-repairing yesterday's missed daily streak. Credits are also earned by playing (daily puzzles, streaks, level milestones,
+The same rewarded unit also powers the other opt-in offers: one extra mistake or extra time in a Levels stage (each up to
+2 per attempt), one extra mistake in a Play Now game with a mistake limit (up to 2 per game), a 30-second Speed Round
+extension (once per round), doubling the hint credits a finished game paid (once per game), a daily gift of 3 credits
+(once per day), unlocking a board theme (three themes are free), and repairing yesterday's missed daily streak. Every
+offer is a button the player presses; no ad ever starts on its own. Credits are also earned by playing (daily puzzles, streaks, level milestones,
 badges and player levels), each paid once under a fixed reward id.
 Credits are granted only from the SDK's earned-reward event, recorded with a unique attempt ID in the same SQLite
 transaction as the balance change. The balance is local convenience data: it is not server-verified and is lost on uninstall.

@@ -23,7 +23,7 @@ export function StartupSplash({ onBrandReady, reducedMotion }: StartupSplashProp
     <View
       style={styles.launch}
       accessible
-      accessibilityLabel="Loading Sudoku Studio"
+      accessibilityLabel="Loading Sudoku Vault"
       accessibilityState={{ busy: true }}
       onLayout={() => {
         laidOut.current = true;

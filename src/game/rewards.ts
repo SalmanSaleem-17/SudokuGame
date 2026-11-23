@@ -15,6 +15,9 @@ export interface RewardResult extends AchievementResult, DailyResult {
   sessionId: string;
 }
 
+/** Hint credits from the daily gift: one optional ad per local day. */
+export const DAILY_GIFT_CREDITS = 3;
+
 export interface RewardGrant {
   id: string;
   credits: number;

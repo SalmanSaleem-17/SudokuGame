@@ -71,12 +71,12 @@ export function ChallengeResults({ score }: { score: ChallengeScore }) {
     if (sharing.current) return;
     sharing.current = true;
     setShareError(null);
-    const title = 'Sudoku Studio challenge result';
+    const title = 'Sudoku Vault challenge result';
     const message = [
       `${title}\nI solved the puzzle in ${formatChallengeTime(score.timeMs)}.`,
       shareData.code,
-      'Paste this result code into Sudoku Studio to compare times.',
-      `Get Sudoku Studio: ${STORE_URL}`,
+      'Paste this result code into Sudoku Vault to compare times.',
+      `Get Sudoku Vault: ${STORE_URL}`,
     ].join('\n\n');
     try {
       await Share.share({ title, message }, { dialogTitle: title, subject: title });

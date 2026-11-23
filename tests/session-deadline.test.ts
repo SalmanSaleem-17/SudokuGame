@@ -224,7 +224,7 @@ describe('friend challenge gameplay', () => {
     const classic = startClassic('easy');
     const daily = startDaily('2026-11-23');
     const invite = prepareChallenge('medium', { timerMinutes: 5, mistakes: 3 });
-    const joined = decodeChallenge(`Try this puzzle in Sudoku Studio\n${invite.code}`);
+    const joined = decodeChallenge(`Try this puzzle in Sudoku Vault\n${invite.code}`);
     const attempt = startChallenge(joined);
     expect(startChallenge(joined).id).toBe(attempt.id);
     expect(attempt.givens.join('')).toBe(invite.puzzle.givens);

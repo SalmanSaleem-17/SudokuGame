@@ -5,9 +5,11 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 
 import { dateKeyOf } from '../game/daily';
 import { LEVEL_COUNT } from '../game/levels';
+import { DAILY_GIFT_CREDITS } from '../game/rewards';
 import { listPlayNowSaves } from '../game/savedGames';
-import { appStore } from '../state/app';
+import { appStore, isDailyGiftReady, watchAdForDailyGift } from '../state/app';
 import { useStore } from '../state/store';
+import { promptForAd } from '../ui/adPrompt';
 import { WORDMARK, WORDMARK_ASPECT_RATIO } from '../ui/Brand';
 import { Button, IconButton, Screen, type IconName } from '../ui/controls';
 import { useScreenFocused } from '../ui/hooks';
@@ -41,6 +43,17 @@ export default function HomeScreen() {
     : daily?.dateKey === today && !daily.completed ? 'In progress'
     : "Today's challenge";
   const savedCount = listPlayNowSaves(classic, mini).length;
+  const giftDay = useStore(appStore, (s) => s.giftDay);
+  const canRequestAds = useStore(appStore, (s) => s.ads.canRequestAds);
+  const giftReady = canRequestAds && isDailyGiftReady(giftDay);
+  // The ad starts only if the player chooses it in this prompt.
+  const offerGift = () => promptForAd({
+    title: 'Daily gift',
+    message: `Watch one ad to get ${DAILY_GIFT_CREDITS} hint credits. You can do this once a day.`,
+    watch: watchAdForDailyGift,
+    earned: `${DAILY_GIFT_CREDITS} hint credits added. A new gift is ready tomorrow.`,
+    lost: 'no credits were added',
+  });
 
   return (
     <Screen
@@ -63,7 +76,7 @@ export default function HomeScreen() {
             ))}
           </View>
           <View style={styles.wordmark}>
-            <Image source={WORDMARK} style={styles.wordmarkImage} resizeMode="contain" accessible accessibilityRole="header" accessibilityLabel="Sudoku Studio" />
+            <Image source={WORDMARK} style={styles.wordmarkImage} resizeMode="contain" accessible accessibilityRole="header" accessibilityLabel="Sudoku Vault" />
           </View>
           <View style={styles.tagline}>
             <View style={styles.taglineRule} />
@@ -132,6 +145,18 @@ export default function HomeScreen() {
             <Ionicons name="cloud-offline-outline" size={16} color={colors.textFaint} />
             <Text style={styles.footerText}>Works offline</Text>
           </View>
+          {giftReady && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Daily gift"
+              accessibilityHint={`Offers one optional ad for ${DAILY_GIFT_CREDITS} hint credits`}
+              hitSlop={12}
+              onPress={offerGift}
+              style={({ pressed }) => [styles.footerItem, pressed && styles.linkPressed]}>
+              <Ionicons name="gift-outline" size={16} color={colors.accent} />
+              <Text style={[styles.footerText, styles.giftText]}>Daily gift</Text>
+            </Pressable>
+          )}
           <View style={styles.footerItem}>
             <Ionicons name="bulb-outline" size={16} color={colors.accent} />
             <Text style={styles.footerText}>{credits} hint {credits === 1 ? 'credit' : 'credits'}</Text>
@@ -246,4 +271,5 @@ const styles = StyleSheet.create({
   footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.sm },
   footerItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   footerText: { ...type.dim, fontSize: 12, lineHeight: 18 },
+  giftText: { color: colors.accent, fontWeight: '700' },
 });

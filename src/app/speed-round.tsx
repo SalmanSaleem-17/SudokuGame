@@ -4,13 +4,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import {
-  DEFAULT_SPEED_OPTIONS, EMPTY_SPEED_PROGRESS, SPEED_PROGRESS_KEY, createSpeedClock, enterSpeedDigit,
-  finishSpeedRound, quitSpeedRound, readSpeedProgress, speedPuzzleForRound, speedRemainingMs, startSpeedRound,
+  DEFAULT_SPEED_OPTIONS, EMPTY_SPEED_PROGRESS, SPEED_EXTENSION_MS, SPEED_PROGRESS_KEY, canExtendSpeedRound, createSpeedClock,
+  enterSpeedDigit, extendSpeedRound, finishSpeedRound, quitSpeedRound, readSpeedProgress, resumeSpeedRound, speedPuzzleForRound,
+  speedRemainingMs, startSpeedRound,
   type SpeedFormat, type SpeedProgress,
 } from '../game/eventSpeed';
 import { DIFFICULTY_NAMES } from '../engine/grader';
-import { loadModeProgress, saveModeProgress } from '../state/app';
+import { appStore, loadModeProgress, saveModeProgress, watchAdForModeProgress } from '../state/app';
 import { formatTime } from '../state/clock';
+import { useStore } from '../state/store';
+import { AdOffer } from '../ui/AdOffer';
 import { Board } from '../ui/Board';
 import { AlternateBoard } from '../ui/AlternateBoard';
 import { confirmQuitGame } from '../ui/confirmQuitGame';
@@ -45,6 +48,7 @@ export default function SpeedRoundScreen() {
   const boardSize = useBoardSize(342, 16);
   const appActive = useAppActive();
   const focused = useScreenFocused();
+  const adIdle = useStore(appStore, (s) => s.reward.phase === 'idle');
 
   const write = useCallback((snapshot: SpeedProgress) => {
     const revision = ++saveRevision.current;
@@ -105,6 +109,24 @@ export default function SpeedRoundScreen() {
     setSelected(cell);
     setWrong(null);
   }, []);
+
+  /* ---- one optional ad reopens a finished round with extra time, once ---- */
+  const extend = useCallback(() => watchAdForModeProgress(SPEED_PROGRESS_KEY, () => extendSpeedRound(latest.current), (next) => {
+    // The ad's reward saved this progress itself; drop any older save still in flight.
+    saveRevision.current++;
+    latest.current = next;
+    setProgress(next);
+    setSaveError(false);
+    focusCell(null);
+    setFeedback('Extra time! Tap an empty square, then a digit');
+    setSeconds(SPEED_EXTENSION_MS / 1000);
+  }), [focusCell]);
+  // The extra time starts only once the ad has closed and the board is back on screen.
+  const waiting = !!round && !round.finished && round.pausedMs !== undefined;
+  useEffect(() => {
+    if (!waiting || !adIdle || !focused || !appActive || quitPending.current) return;
+    update(resumeSpeedRound(latest.current, now()));
+  }, [adIdle, appActive, focused, now, update, waiting]);
   const pressCell = useCallback((cell: number) => {
     if (quitPending.current || latest.current.round?.values[cell] !== 0) return;
     focusCell(cell);
@@ -182,7 +204,7 @@ export default function SpeedRoundScreen() {
         quitPending.current = false;
         setQuitting(false);
       });
-    }, 'Your points in this round will be lost.');
+    }, latest.current.round?.extended ? 'The round will end now and keep its score.' : 'Your points in this round will be lost.');
   };
 
   return (
@@ -260,6 +282,14 @@ export default function SpeedRoundScreen() {
                   <Text style={type.body}>Fill as many empty squares as you can. Each correct digit adds one point.</Text>
                   <Text style={type.dim}>The clock keeps running if you leave the screen.</Text>
                 </>
+              )}
+              {canExtendSpeedRound(round) && (
+                <AdOffer
+                  label={`Watch ad: +${SPEED_EXTENSION_MS / 1000} seconds`}
+                  detail="Keep this round going · once per round"
+                  lost="no time was added"
+                  onWatch={extend}
+                />
               )}
             </Card>
             <SpeedOptionsPicker options={options} onChange={setOptions} />

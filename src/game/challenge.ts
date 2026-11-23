@@ -64,7 +64,7 @@ function readCode(text: string, prefix: typeof INVITE | typeof RESULT): string[]
 
   const code = codes[0];
   const [version, ...tail] = code.split('-');
-  if (version !== prefix) throw new Error(`Update Sudoku Studio to use this version of the ${name} code.`);
+  if (version !== prefix) throw new Error(`Update Sudoku Vault to use this version of the ${name} code.`);
   const parts = tail.slice(0, -1);
   if (checkedCode(prefix, parts) !== code) throw new Error(`Check the ${name} code and paste it again.`);
   return parts;
@@ -82,7 +82,7 @@ function puzzleKey(puzzle: PuzzleRecord): string {
   const key = DIFFICULTY_KEYS.find(([, difficulty]) => difficulty === puzzle.difficulty)?.[0];
   const match = /-([0-9]{3})$/.exec(puzzle.id);
   if (!key || !match || Number(match[1]) === 0 || puzzle.id !== `${puzzle.difficulty}-${match[1]}`) {
-    throw new Error('Choose a puzzle from the bundled Sudoku Studio catalog.');
+    throw new Error('Choose a puzzle from the bundled Sudoku Vault catalog.');
   }
   return `${key}${base36(Number(match[1]), 2)}`;
 }
@@ -107,7 +107,7 @@ function decodeRound(parts: string[]) {
 export function createChallenge(puzzle: PuzzleRecord, rules: SessionRules): Challenge {
   const localPuzzle = getPuzzle(puzzle.id);
   if (!localPuzzle || localPuzzle.givens !== puzzle.givens || localPuzzle.difficulty !== puzzle.difficulty) {
-    throw new Error('Choose a puzzle from the bundled Sudoku Studio catalog.');
+    throw new Error('Choose a puzzle from the bundled Sudoku Vault catalog.');
   }
   const nonce = base36(Math.floor(Math.random() * 36 ** NONCE_WIDTH), NONCE_WIDTH);
   const parts = [puzzleKey(localPuzzle), `${packRules(rules)}${puzzleFingerprint(localPuzzle)}`, nonce];
@@ -118,7 +118,7 @@ export function decodeChallenge(text: string): Challenge {
   const round = decodeRound(readCode(text, INVITE));
   const puzzle = getPuzzle(round.puzzleId);
   if (!puzzle || puzzleFingerprint(puzzle) !== round.fingerprint) {
-    throw new Error('This app has a different version of that puzzle. Update Sudoku Studio or ask your friend for a new challenge.');
+    throw new Error('This app has a different version of that puzzle. Update Sudoku Vault or ask your friend for a new challenge.');
   }
   return { code: round.code, puzzle, rules: round.rules };
 }

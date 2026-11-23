@@ -52,18 +52,18 @@ describe('challenge invitations', () => {
   });
 
   it('accepts the share message and normalizes case, spacing and copied hyphens', () => {
-    const text = `\nTry my Sudoku Studio puzzle!\nCode: \`${sample.challengeCode.toLowerCase().replaceAll('-', '\u2011')}\`\n`;
+    const text = `\nTry my Sudoku Vault puzzle!\nCode: \`${sample.challengeCode.toLowerCase().replaceAll('-', '\u2011')}\`\n`;
     expect(decodeChallenge(text).code).toBe(sample.challengeCode);
     expect(decodeChallenge(` ${sample.challengeCode} `).code).toBe(sample.challengeCode);
   });
 
   it('still reads a code from a share message that ends with the Google Play link', () => {
-    const link = `Get Sudoku Studio: ${STORE_URL}`;
+    const link = `Get Sudoku Vault: ${STORE_URL}`;
     expect(STORE_URL).toBe('https://play.google.com/store/apps/details?id=com.sudoku.studio');
-    expect(decodeChallenge(`Try my Sudoku Studio challenge\n\n${sample.challengeCode}\n\nOpen Challenge a Friend in Sudoku Studio and paste this message.\n\n${link}`).code)
+    expect(decodeChallenge(`Try my Sudoku Vault challenge\n\n${sample.challengeCode}\n\nOpen Challenge a Friend in Sudoku Vault and paste this message.\n\n${link}`).code)
       .toBe(sample.challengeCode);
     const result = encodeChallengeScore(sample);
-    expect(decodeChallengeScore(`Sudoku Studio challenge result\n\n${result}\n\nPaste this result code into Sudoku Studio to compare times.\n\n${link}`))
+    expect(decodeChallengeScore(`Sudoku Vault challenge result\n\n${result}\n\nPaste this result code into Sudoku Vault to compare times.\n\n${link}`))
       .toEqual(decodeChallengeScore(result));
   });
 
@@ -75,13 +75,13 @@ describe('challenge invitations', () => {
     } finally {
       puzzle.givens = original;
     }
-    expect(() => createChallenge({ ...puzzle, id: 'easy-999' }, limited)).toThrow(/bundled Sudoku Studio catalog/);
+    expect(() => createChallenge({ ...puzzle, id: 'easy-999' }, limited)).toThrow(/bundled Sudoku Vault catalog/);
   });
 
   it('rejects malformed, mistyped, ambiguous and unsupported invitations', () => {
     expect(() => decodeChallenge('random text')).toThrow(/challenge code/);
     expect(() => decodeChallenge(`${sample.challengeCode.slice(0, -1)}A`)).toThrow(/Check the challenge code/);
-    expect(() => decodeChallenge(sample.challengeCode.replace('SDC1', 'SDC2'))).toThrow(/Update Sudoku Studio/);
+    expect(() => decodeChallenge(sample.challengeCode.replace('SDC1', 'SDC2'))).toThrow(/Update Sudoku Vault/);
     vi.spyOn(Math, 'random').mockReturnValue(0.75);
     const anotherRound = createChallenge(puzzle, limited);
     expect(() => decodeChallenge(`${sample.challengeCode}\n${anotherRound.code}`)).toThrow(/one challenge code at a time/);

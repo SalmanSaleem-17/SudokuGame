@@ -1,9 +1,10 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { BOARD_THEMES, type BoardTheme } from '../game/settings';
-import { appStore, updateSettings } from '../state/app';
+import { BOARD_THEMES, isThemeAvailable, type BoardTheme } from '../game/settings';
+import { appStore, updateSettings, watchAdToUnlockTheme } from '../state/app';
 import { useStore } from '../state/store';
+import { promptForAd } from '../ui/adPrompt';
 import { BOARD_PALETTES, BOARD_THEME_NAMES } from '../ui/boardTheme';
 import { Screen } from '../ui/controls';
 import { colors, gradients, radius, spacing, type } from '../ui/theme';
@@ -17,14 +18,40 @@ const PREVIEW = [
 
 export default function BoardThemesScreen() {
   const current = useStore(appStore, (s) => s.settings.boardTheme);
+  const unlocked = useStore(appStore, (s) => s.unlockedThemes);
+  const canRequestAds = useStore(appStore, (s) => s.ads.canRequestAds);
+  const adIdle = useStore(appStore, (s) => s.reward.phase === 'idle');
+
+  const choose = (theme: BoardTheme) => {
+    if (isThemeAvailable(theme, unlocked, current)) {
+      updateSettings({ boardTheme: theme });
+      return;
+    }
+    const name = BOARD_THEME_NAMES[theme];
+    if (!adIdle) return;
+    if (!canRequestAds) {
+      Alert.alert(`${name} is locked`, 'This theme opens with one optional ad, and ads are unavailable right now. Try again later.');
+      return;
+    }
+    // The ad starts only if the player chooses it here.
+    promptForAd({
+      title: `Unlock ${name}?`,
+      message: 'Watch one ad to unlock this board theme. It stays unlocked on this device.',
+      watch: () => watchAdToUnlockTheme(theme),
+      lost: 'the theme is still locked',
+    });
+  };
 
   return (
     <Screen title="Board Themes">
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <Text style={type.dim}>Pick how the puzzle board looks. Your choice applies to every board in the game.</Text>
-        <View style={styles.grid} accessibilityRole="radiogroup" accessibilityLabel="Board theme">
+        <Text style={type.dim}>
+          Pick how the puzzle board looks. Your choice applies to every board in the game. Themes with a lock open after one optional ad.
+        </Text>
+        <View style={styles.grid} accessibilityLabel="Board theme">
           {BOARD_THEMES.map((theme) => (
-            <ThemeTile key={theme} theme={theme} selected={theme === current} />
+            <ThemeTile key={theme} theme={theme} selected={theme === current}
+              locked={!isThemeAvailable(theme, unlocked, current)} onPress={() => choose(theme)} />
           ))}
         </View>
       </ScrollView>
@@ -32,14 +59,16 @@ export default function BoardThemesScreen() {
   );
 }
 
-function ThemeTile({ theme, selected }: { theme: BoardTheme; selected: boolean }) {
+function ThemeTile({ theme, selected, locked, onPress }: { theme: BoardTheme; selected: boolean; locked: boolean; onPress: () => void }) {
   const palette = BOARD_PALETTES[theme];
+  const name = BOARD_THEME_NAMES[theme];
   return (
     <Pressable
-      onPress={() => updateSettings({ boardTheme: theme })}
-      accessibilityRole="radio"
-      accessibilityLabel={BOARD_THEME_NAMES[theme]}
-      accessibilityState={{ checked: selected }}
+      onPress={onPress}
+      accessibilityRole={locked ? 'button' : 'radio'}
+      accessibilityLabel={locked ? `${name}, locked` : name}
+      accessibilityHint={locked ? 'Offers one optional ad to unlock this theme' : undefined}
+      accessibilityState={locked ? undefined : { checked: selected }}
       style={({ pressed }) => [styles.tile, selected && styles.tileSelected, pressed && styles.pressed]}>
       <View style={[styles.preview, { backgroundColor: palette.frame, borderColor: palette.frame }]}>
         {PREVIEW.map(({ kind, text }, index) => {
@@ -57,9 +86,14 @@ function ThemeTile({ theme, selected }: { theme: BoardTheme; selected: boolean }
             </View>
           );
         })}
+        {locked && (
+          <View style={styles.lock}>
+            <Ionicons name="lock-closed" size={13} color={colors.onAccent} />
+          </View>
+        )}
       </View>
       <View style={styles.caption}>
-        <Text style={[styles.name, selected && styles.nameSelected]} numberOfLines={2}>{BOARD_THEME_NAMES[theme]}</Text>
+        <Text style={[styles.name, selected && styles.nameSelected]} numberOfLines={2}>{name}</Text>
         {selected && <Ionicons name="checkmark-circle" size={15} color={colors.accent} />}
       </View>
     </Pressable>
@@ -85,6 +119,11 @@ const styles = StyleSheet.create({
   digit: { fontSize: 15, fontWeight: '600', includeFontPadding: false, fontVariant: ['tabular-nums'] },
   given: { fontWeight: '800' },
   note: { fontSize: 9, alignSelf: 'flex-start', marginLeft: 3 },
+  // The preview stays fully visible so a locked theme can still be judged before unlocking.
+  lock: {
+    position: 'absolute', top: 4, right: 4, width: 24, height: 24, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: colors.accent,
+  },
   caption: { minHeight: 34, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3 },
   name: { flexShrink: 1, color: colors.text, fontSize: 12, fontWeight: '700', textAlign: 'center' },
   nameSelected: { color: colors.accent },

@@ -6,6 +6,14 @@ export const BOARD_THEMES = [
 ] as const;
 export type BoardTheme = (typeof BOARD_THEMES)[number];
 
+/** Always available, including the light and high-contrast boards. The others unlock with one ad each. */
+export const FREE_BOARD_THEMES: readonly BoardTheme[] = ['charcoal', 'light', 'contrast'];
+
+/** A theme can be used when it is free, already unlocked, or the one currently selected. */
+export function isThemeAvailable(theme: BoardTheme, unlocked: readonly string[], current: BoardTheme): boolean {
+  return FREE_BOARD_THEMES.includes(theme) || unlocked.includes(theme) || theme === current;
+}
+
 export function isBoardTheme(value: unknown): value is BoardTheme {
   return BOARD_THEMES.some((theme) => theme === value);
 }
